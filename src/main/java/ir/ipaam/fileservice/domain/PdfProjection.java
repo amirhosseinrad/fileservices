@@ -16,7 +16,10 @@ public class PdfProjection {
 
     @EventHandler
     public void on(PdfCreatedEvent event) {
-        byte[] pdf = pdfGenerator.generate(event);
+        if (event.getPdfBytes() == null) {
+            byte[] pdf = pdfGenerator.generate(event);
+            event.setPdfBytes(pdf);
+        }
         // store in DB, MinIO, filesystem, etc.
     }
 }
