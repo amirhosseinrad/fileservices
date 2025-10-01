@@ -93,7 +93,12 @@ public class PdfGenerator {
         try {
             String shaped = ARABIC_SHAPING.shape(line);
             Bidi bidi = new Bidi(shaped, Bidi.DIRECTION_DEFAULT_RIGHT_TO_LEFT);
-            String visual = bidi.writeReordered(Bidi.DO_MIRRORING);
+            bidi.setReorderingMode(Bidi.REORDER_DEFAULT);
+            String visual = bidi.writeReordered(
+                    Bidi.DO_MIRRORING |
+                            Bidi.OUTPUT_REVERSE |
+                            Bidi.INSERT_LRM_FOR_NUMBERS
+            );
             String normalized = Normalizer.normalize(visual, Normalizer.Form.NFKC);
             return new PreparedLine(normalized, true);
         } catch (ArabicShapingException e) {
