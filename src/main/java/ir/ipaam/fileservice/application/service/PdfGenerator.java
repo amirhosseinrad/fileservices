@@ -31,7 +31,15 @@ public class PdfGenerator {
 
             content.beginText();
             content.newLineAtOffset(100, 700);
-            content.showText(event.getText());
+
+            float leading = 16f;
+            String[] lines = (event.getText() == null ? "" : event.getText()).split("\\R", -1);
+            for (int i = 0; i < lines.length; i++) {
+                if (i > 0) {
+                    content.newLineAtOffset(0, -leading);
+                }
+                content.showText(lines[i]);
+            }
             content.endText();
             content.close();
 
