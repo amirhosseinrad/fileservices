@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.text.Normalizer;
 import java.util.regex.Pattern;
 
 @Service
@@ -93,7 +94,8 @@ public class PdfGenerator {
             String shaped = ARABIC_SHAPING.shape(line);
             Bidi bidi = new Bidi(shaped, Bidi.DIRECTION_DEFAULT_RIGHT_TO_LEFT);
             String visual = bidi.writeReordered(Bidi.DO_MIRRORING);
-            return new PreparedLine(visual, true);
+            String normalized = Normalizer.normalize(visual, Normalizer.Form.NFKC);
+            return new PreparedLine(normalized, true);
         } catch (ArabicShapingException e) {
             throw new RuntimeException("Unable to shape RTL text", e);
         }
