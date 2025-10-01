@@ -10,10 +10,11 @@ import lombok.Setter;
 @NoArgsConstructor
 @Setter
 @Getter
-public class CreatePdfCommand{
+public class CreatePdfCommand {
     private String conversionId;
     private String text;
     private String fontName;
+    private byte[] pdfBytes;
 }
 
 

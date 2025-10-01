@@ -13,6 +13,10 @@ import java.io.InputStream;
 @Service
 public class PdfGenerator {
 
+    public byte[] generate(String text) {
+        return generate(new PdfCreatedEvent(null, text, null));
+    }
+
     public byte[] generate(PdfCreatedEvent event) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             PDDocument doc = new PDDocument();

@@ -22,7 +22,7 @@ public class ConversionAggregate {
         AggregateLifecycle.apply(new PdfCreatedEvent(
             createPdfCommand.getConversionId(),
             createPdfCommand.getText(),
-            null// payload generated later in projection/service
+            createPdfCommand.getPdfBytes()
         ));
     }
 
