@@ -25,7 +25,7 @@ public class PdfGenerator {
     private static final Pattern RTL_PATTERN = Pattern.compile("[\\p{InArabic}]");
 
     private static final ArabicShaping ARABIC_SHAPING = new ArabicShaping(
-            ArabicShaping.LETTERS_SHAPE | ArabicShaping.TEXT_DIRECTION_VISUAL_LTR
+            ArabicShaping.LETTERS_SHAPE | ArabicShaping.TEXT_DIRECTION_LOGICAL
     );
 
     public byte[] generate(PdfCreatedEvent event) {
