@@ -19,4 +19,16 @@ class PdfGeneratorTest {
         assertNotNull(pdfBytes);
         assertTrue(pdfBytes.length > 0, "Generated PDF should not be empty");
     }
+
+    @Test
+    void generateShouldSupportPersianCharacters() {
+        PdfGenerator generator = new PdfGenerator();
+        PdfCreatedEvent event = new PdfCreatedEvent();
+        event.setText("این یک متن نمونه است\nمتن دوم برای آزمایش");
+
+        byte[] pdfBytes = generator.generate(event);
+
+        assertNotNull(pdfBytes);
+        assertTrue(pdfBytes.length > 0, "Generated PDF with Persian text should not be empty");
+    }
 }
