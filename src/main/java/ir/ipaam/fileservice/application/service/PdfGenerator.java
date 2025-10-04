@@ -38,7 +38,7 @@ public class PdfGenerator {
             PDPageContentStream content = new PDPageContentStream(doc, page);
 
             PDFont font;
-            try (InputStream fontStream = getClass().getResourceAsStream("/fonts/Mitra.ttf")) {
+            try (InputStream fontStream = getClass().getResourceAsStream("/fonts/IranSans.ttf")) {
                 if (fontStream == null) {
                     throw new IllegalStateException("Font not found in resources: /fonts/IranSans.ttf");
                 }
@@ -87,7 +87,7 @@ public class PdfGenerator {
         }
 
 
-        String normalizedLine = line.replaceAll("ی(?!\\b)", "ي");        // Step 2: If no RTL chars, just return
+        String normalizedLine = normalizePersianText(line);
         if (!containsRtlCharacters(normalizedLine)) {
             return new PreparedLine(normalizedLine, false);
         }
@@ -105,6 +105,22 @@ public class PdfGenerator {
 
     private boolean containsRtlCharacters(String line) {
         return RTL_PATTERN.matcher(line).find();
+    }
+
+    private String normalizePersianText(String line) {
+        String normalized = Normalizer.normalize(line, Normalizer.Form.NFKC);
+
+        StringBuilder builder = new StringBuilder(normalized.length());
+        for (int i = 0; i < normalized.length(); i++) {
+            char ch = normalized.charAt(i);
+            builder.append(switch (ch) {
+                case '\u064A', '\u0649', '\u06D2' -> '\u06CC';
+                case '\u0643' -> '\u06A9';
+                default -> ch;
+            });
+        }
+
+        return builder.toString();
     }
 
     private record PreparedLine(String text, boolean rtl) {
