@@ -35,7 +35,7 @@ public class HtmlCssPdfGenerator {
     }
 
     private String buildDocument(String htmlContent, String cssContent) {
-        String safeHtml = htmlContent == null ? "" : htmlContent;
+        String safeHtml = htmlContent == null ? "" : normalizeHtmlEntities(htmlContent);
         String safeCss = cssContent == null ? "" : cssContent;
 
         if (containsHtmlTag(safeHtml)) {
@@ -85,5 +85,13 @@ public class HtmlCssPdfGenerator {
         }
 
         return "<html><head><style>" + cssContent + "</style></head><body>" + htmlContent + "</body></html>";
+    }
+
+    private String normalizeHtmlEntities(String htmlContent) {
+        if (htmlContent.isEmpty()) {
+            return htmlContent;
+        }
+
+        return htmlContent.replace("&nbsp;", "&#160;");
     }
 }
