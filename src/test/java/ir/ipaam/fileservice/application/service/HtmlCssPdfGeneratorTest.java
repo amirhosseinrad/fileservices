@@ -33,12 +33,13 @@ class HtmlCssPdfGeneratorTest {
     }
 
     @Test
-    void shouldInjectIranSansFontCssIntoGeneratedDocument() throws Exception {
+    void shouldInjectPersianFontCssIntoGeneratedDocument() throws Exception {
         Method buildDocument = HtmlCssPdfGenerator.class.getDeclaredMethod("buildDocument", String.class, String.class);
         buildDocument.setAccessible(true);
 
         String document = (String) buildDocument.invoke(generator, "<p>سلام دنیا</p>", "");
 
-        assertTrue(document.contains("font-family: 'IranSans'"), "Generated document should reference IranSans font");
+        assertTrue(document.contains("font-family: 'Vazir'"), "Generated document should reference Vazir font");
+        assertTrue(document.contains("font-family: 'IranSans'"), "Generated document should include IranSans fallback");
     }
 }

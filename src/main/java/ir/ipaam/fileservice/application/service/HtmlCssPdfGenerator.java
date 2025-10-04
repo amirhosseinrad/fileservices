@@ -13,15 +13,22 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class HtmlCssPdfGenerator {
 
-    private static final String DEFAULT_IRANSANS_CSS = """
+    private static final String DEFAULT_PERSIAN_FONT_CSS = """
             @font-face {
                 font-family: 'IranSans';
                 src: local('IranSans');
             }
+            @font-face {
+                font-family: 'Vazir';
+                src: local('Vazir');
+            }
             body {
-                font-family: 'IranSans', sans-serif;
+                font-family: 'Vazir', 'IranSans', sans-serif;
             }
             """;
+
+    private static final String IRANSANS_FONT_RESOURCE = "/fonts/IranSans.ttf";
+    private static final String VAZIR_FONT_RESOURCE = "/fonts/Vazir.ttf";
 
     public byte[] generate(String htmlContent, String cssContent) {
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
@@ -30,7 +37,7 @@ public class HtmlCssPdfGenerator {
             PdfRendererBuilder builder = new PdfRendererBuilder();
             builder.useFastMode();
             builder.withHtmlContent(document, null);
-            builder.useFont(this::loadIranSansFont, "IranSans");
+            registerFonts(builder);
             builder.toStream(outputStream);
             builder.run();
 
@@ -40,17 +47,35 @@ public class HtmlCssPdfGenerator {
         }
     }
 
+    private void registerFonts(PdfRendererBuilder builder) {
+        builder.useFont(this::loadIranSansFont, "IranSans");
+        builder.useFont(this::loadVazirFontOrFallback, "Vazir");
+    }
+
     private InputStream loadIranSansFont() {
-        InputStream stream = getClass().getResourceAsStream("/fonts/IranSans.ttf");
+        return loadFont(IRANSANS_FONT_RESOURCE);
+    }
+
+    private InputStream loadVazirFontOrFallback() {
+        InputStream stream = getClass().getResourceAsStream(VAZIR_FONT_RESOURCE);
+        if (stream != null) {
+            return stream;
+        }
+
+        return loadIranSansFont();
+    }
+
+    private InputStream loadFont(String resourcePath) {
+        InputStream stream = getClass().getResourceAsStream(resourcePath);
         if (stream == null) {
-            throw new IllegalStateException("Font not found in resources: /fonts/IranSans.ttf");
+            throw new IllegalStateException("Font not found in resources: " + resourcePath);
         }
         return stream;
     }
 
     private String buildDocument(String htmlContent, String cssContent) {
         String safeHtml = htmlContent == null ? "" : normalizeHtmlMarkup(htmlContent);
-        String cssWithFont = ensureIranSansCss(cssContent);
+        String cssWithFont = ensureDefaultFontCss(cssContent);
 
         if (containsHtmlTag(safeHtml)) {
             return injectCssIntoExistingDocument(safeHtml, cssWithFont);
@@ -96,13 +121,13 @@ public class HtmlCssPdfGenerator {
         return "<html><head>" + styleTag + "</head><body>" + htmlContent + "</body></html>";
     }
 
-    private String ensureIranSansCss(String cssContent) {
+    private String ensureDefaultFontCss(String cssContent) {
         String existingCss = cssContent == null ? "" : cssContent.trim();
         if (existingCss.isEmpty()) {
-            return DEFAULT_IRANSANS_CSS;
+            return DEFAULT_PERSIAN_FONT_CSS;
         }
 
-        return DEFAULT_IRANSANS_CSS + "\n" + existingCss;
+        return DEFAULT_PERSIAN_FONT_CSS + "\n" + existingCss;
     }
 
     private String normalizeHtmlMarkup(String htmlContent) {
