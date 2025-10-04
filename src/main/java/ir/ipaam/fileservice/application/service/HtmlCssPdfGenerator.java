@@ -13,6 +13,16 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class HtmlCssPdfGenerator {
 
+    private static final String DEFAULT_IRANSANS_CSS = """
+            @font-face {
+                font-family: 'IranSans';
+                src: local('IranSans');
+            }
+            body {
+                font-family: 'IranSans', sans-serif;
+            }
+            """;
+
     public byte[] generate(String htmlContent, String cssContent) {
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             String document = buildDocument(htmlContent, cssContent);
@@ -40,17 +50,15 @@ public class HtmlCssPdfGenerator {
 
     private String buildDocument(String htmlContent, String cssContent) {
         String safeHtml = htmlContent == null ? "" : normalizeHtmlMarkup(htmlContent);
-        String safeCss = cssContent == null ? "" : cssContent;
+        String cssWithFont = ensureIranSansCss(cssContent);
 
         if (containsHtmlTag(safeHtml)) {
-            return injectCssIntoExistingDocument(safeHtml, safeCss);
+            return injectCssIntoExistingDocument(safeHtml, cssWithFont);
         }
 
         StringBuilder builder = new StringBuilder();
         builder.append("<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">");
-        if (!safeCss.isBlank()) {
-            builder.append("<style>").append(safeCss).append("</style>");
-        }
+        builder.append("<style>").append(cssWithFont).append("</style>");
         builder.append("</head><body>").append(safeHtml).append("</body></html>");
         return builder.toString();
     }
@@ -61,15 +69,12 @@ public class HtmlCssPdfGenerator {
     }
 
     private String injectCssIntoExistingDocument(String htmlContent, String cssContent) {
-        if (cssContent.isBlank()) {
-            return htmlContent;
-        }
-
         String lower = htmlContent.toLowerCase();
+        String styleTag = "<style>" + cssContent + "</style>";
         int headCloseIndex = lower.indexOf("</head>");
         if (headCloseIndex != -1) {
             return htmlContent.substring(0, headCloseIndex) +
-                    "<style>" + cssContent + "</style>" +
+                    styleTag +
                     htmlContent.substring(headCloseIndex);
         }
 
@@ -78,17 +83,26 @@ public class HtmlCssPdfGenerator {
             int headEnd = lower.indexOf('>', headOpenIndex);
             if (headEnd != -1) {
                 return htmlContent.substring(0, headEnd + 1) +
-                        "<style>" + cssContent + "</style>" +
+                        styleTag +
                         htmlContent.substring(headEnd + 1);
             }
         }
 
         int bodyIndex = lower.indexOf("<body");
         if (bodyIndex != -1) {
-            return "<html><head><style>" + cssContent + "</style></head>" + htmlContent.substring(bodyIndex);
+            return "<html><head>" + styleTag + "</head>" + htmlContent.substring(bodyIndex);
         }
 
-        return "<html><head><style>" + cssContent + "</style></head><body>" + htmlContent + "</body></html>";
+        return "<html><head>" + styleTag + "</head><body>" + htmlContent + "</body></html>";
+    }
+
+    private String ensureIranSansCss(String cssContent) {
+        String existingCss = cssContent == null ? "" : cssContent.trim();
+        if (existingCss.isEmpty()) {
+            return DEFAULT_IRANSANS_CSS;
+        }
+
+        return DEFAULT_IRANSANS_CSS + "\n" + existingCss;
     }
 
     private String normalizeHtmlMarkup(String htmlContent) {

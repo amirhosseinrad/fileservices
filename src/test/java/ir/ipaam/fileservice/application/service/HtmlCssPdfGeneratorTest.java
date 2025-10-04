@@ -2,6 +2,8 @@ package ir.ipaam.fileservice.application.service;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
+
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,5 +30,15 @@ class HtmlCssPdfGeneratorTest {
 
         assertNotNull(pdfBytes);
         assertTrue(pdfBytes.length > 0, "Generated PDF should not be empty");
+    }
+
+    @Test
+    void shouldInjectIranSansFontCssIntoGeneratedDocument() throws Exception {
+        Method buildDocument = HtmlCssPdfGenerator.class.getDeclaredMethod("buildDocument", String.class, String.class);
+        buildDocument.setAccessible(true);
+
+        String document = (String) buildDocument.invoke(generator, "<p>سلام دنیا</p>", "");
+
+        assertTrue(document.contains("font-family: 'IranSans'"), "Generated document should reference IranSans font");
     }
 }
