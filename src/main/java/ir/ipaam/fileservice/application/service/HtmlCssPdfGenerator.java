@@ -1,10 +1,14 @@
 package ir.ipaam.fileservice.application.service;
 
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Entities;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 @Service
 public class HtmlCssPdfGenerator {
@@ -35,7 +39,7 @@ public class HtmlCssPdfGenerator {
     }
 
     private String buildDocument(String htmlContent, String cssContent) {
-        String safeHtml = htmlContent == null ? "" : htmlContent;
+        String safeHtml = htmlContent == null ? "" : normalizeHtmlMarkup(htmlContent);
         String safeCss = cssContent == null ? "" : cssContent;
 
         if (containsHtmlTag(safeHtml)) {
@@ -85,5 +89,23 @@ public class HtmlCssPdfGenerator {
         }
 
         return "<html><head><style>" + cssContent + "</style></head><body>" + htmlContent + "</body></html>";
+    }
+
+    private String normalizeHtmlMarkup(String htmlContent) {
+        if (htmlContent.isEmpty()) {
+            return htmlContent;
+        }
+
+        Document document = Jsoup.parse(htmlContent);
+        document.outputSettings()
+                .syntax(Document.OutputSettings.Syntax.xml)
+                .escapeMode(Entities.EscapeMode.xhtml)
+                .charset(StandardCharsets.UTF_8)
+                .prettyPrint(false);
+
+        String normalized = document.outerHtml();
+        return normalized
+                .replace("&nbsp;", "&#160;")
+                .replace(" ", "&#160;");
     }
 }
