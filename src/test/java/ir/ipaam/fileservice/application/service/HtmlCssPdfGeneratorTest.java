@@ -1,5 +1,8 @@
 package ir.ipaam.fileservice.application.service;
 
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -41,5 +44,25 @@ class HtmlCssPdfGeneratorTest {
 
         assertTrue(document.contains("font-family: 'Vazir'"), "Generated document should reference Vazir font");
         assertTrue(document.contains("font-family: 'IranSans'"), "Generated document should include IranSans fallback");
+    }
+
+    @Test
+    void generatesPdfWithCorrectPersianGlyphOrder() throws Exception {
+        String persianParagraph = "این یک پاراگراف نمونه فارسی برای آزمایش ترتیب صحیح حروف است.";
+        String html = "<html><body><p dir=\"rtl\">" + persianParagraph + "</p></body></html>";
+
+        byte[] pdfBytes = generator.generate(html, null);
+
+        try (PDDocument document = Loader.loadPDF(pdfBytes)) {
+            PDFTextStripper textStripper = new PDFTextStripper();
+            String extracted = textStripper.getText(document)
+                    .replace('\n', ' ')
+                    .replace('\r', ' ')
+                    .replaceAll("\\s+", " ")
+                    .trim();
+
+            assertTrue(extracted.contains(persianParagraph),
+                    () -> "Expected extracted text to contain the Persian paragraph, but was: " + extracted);
+        }
     }
 }
