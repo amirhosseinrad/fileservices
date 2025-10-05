@@ -31,11 +31,12 @@ public class PdfGenerator {
             }
             .text-line.rtl {
                 direction: rtl;
-                unicode-bidi: plaintext;
+                unicode-bidi: isolate;
                 text-align: right;
             }
             .text-line.ltr {
                 direction: ltr;
+                unicode-bidi: isolate;
                 text-align: left;
             }
             .text-line.empty {
@@ -78,9 +79,19 @@ public class PdfGenerator {
     private void appendLine(StringBuilder builder, String original, String escaped) {
         boolean isEmpty = escaped.isEmpty();
         String cssClass = containsRtlCharacters(original) ? "rtl" : "ltr";
-        builder.append("<div class=\"text-line ")
+        String classes = "text-line " + cssClass + (isEmpty ? " empty" : "");
+
+        builder.append("<div class=\"")
+                .append(classes)
+                .append("\" dir=\"")
                 .append(cssClass)
-                .append(isEmpty ? " empty\">&#8203;" : "\">")
+                .append("\"");
+
+        if ("rtl".equals(cssClass)) {
+            builder.append(" lang=\"fa\"");
+        }
+
+        builder.append(isEmpty ? ">&#8203;" : ">")
                 .append(isEmpty ? "" : escaped)
                 .append("</div>");
     }
