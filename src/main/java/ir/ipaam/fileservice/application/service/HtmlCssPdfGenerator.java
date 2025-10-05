@@ -36,6 +36,8 @@ public class HtmlCssPdfGenerator {
 
             PdfRendererBuilder builder = new PdfRendererBuilder();
             builder.useFastMode();
+            builder.useHarfBuzzShaping(true);
+            builder.useUnicodeBidiReordering(true);
             builder.withHtmlContent(document, null);
             registerFonts(builder);
             builder.toStream(outputStream);
