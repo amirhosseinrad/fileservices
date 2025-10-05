@@ -10,7 +10,7 @@ class PdfGeneratorTest {
 
     @Test
     void generateShouldHandleMultilineText() {
-        PdfGenerator generator = new PdfGenerator();
+        PdfGenerator generator = new PdfGenerator(new HtmlCssPdfGenerator());
         PdfCreatedEvent event = new PdfCreatedEvent();
         event.setText("First line\nSecond line\nThird line");
 
@@ -22,7 +22,7 @@ class PdfGeneratorTest {
 
     @Test
     void generateShouldSupportPersianCharacters() {
-        PdfGenerator generator = new PdfGenerator();
+        PdfGenerator generator = new PdfGenerator(new HtmlCssPdfGenerator());
         PdfCreatedEvent event = new PdfCreatedEvent();
         event.setText("این یک متن نمونه است\nمتن دوم برای آزمایش");
 
