@@ -56,6 +56,7 @@ public class HtmlToPdfService {
     private static final int MARGIN_BOTTOM_IMG = ptToImg(MARGIN_BOTTOM_PT);
 
     private static final int CONTENT_W_IMG = PAGE_WIDTH_IMG - MARGIN_LEFT_IMG - MARGIN_RIGHT_IMG;
+    private static final int PARAGRAPH_SPACING_IMG = scalePxToImg(8);
 
     // ---- Font resources (class-path) ----
     private static final String FONT_REGULAR = "/fonts/Vazirmatn-Regular.ttf";
@@ -198,6 +199,13 @@ public class HtmlToPdfService {
                 out.add(b);
                 break;
             }
+            case "style":
+            case "script":
+            case "head":
+            case "title": {
+                // ignore non-rendered content
+                return;
+            }
             default: {
                 // Unknown tag: recurse
                 NodeList ch = el.getChildNodes();
@@ -215,9 +223,12 @@ public class HtmlToPdfService {
                 if (!t.isEmpty()) spans.add(new Span(t, current.copy()));
             } else if (n.getNodeType() == Node.ELEMENT_NODE) {
                 Element e = (Element) n;
+                String tag = e.getTagName().toLowerCase(Locale.ROOT);
+                if (tag.equals("style") || tag.equals("script")) {
+                    continue;
+                }
                 Style s2 = current.copy();
                 applyInlineStyle(e, s2);
-                String tag = e.getTagName().toLowerCase(Locale.ROOT);
                 if (tag.equals("b") || tag.equals("strong")) s2.bold = true;
                 if (tag.equals("i") || tag.equals("em")) s2.italic = true;
 
@@ -286,28 +297,56 @@ public class HtmlToPdfService {
 
     private List<BufferedImage> renderBlocksToPages(List<Block> blocks) throws IOException {
         List<BufferedImage> pages = new ArrayList<>();
-        int y = MARGIN_TOP_IMG;
         BufferedImage page = newPageImage();
         Graphics2D g = prepG(page);
 
+        List<List<Line>> blockLines = new ArrayList<>(blocks.size());
+        List<Integer> blockHeights = new ArrayList<>(blocks.size());
         for (Block b : blocks) {
-            // collapse consecutive spaces already done; now build attributed text
             List<Line> lines = layoutBlockToLines(g, b, CONTENT_W_IMG);
-            int blockHeight = lines.stream().mapToInt(line -> line.height).sum();
+            blockLines.add(lines);
+            blockHeights.add(lines.stream().mapToInt(line -> line.height).sum());
+        }
 
-            // page break if needed
-            if (y + blockHeight > PAGE_HEIGHT_IMG - MARGIN_BOTTOM_IMG) {
-                pages.add(page);
+        int y = MARGIN_TOP_IMG;
+        int maxContentBottom = PAGE_HEIGHT_IMG - MARGIN_BOTTOM_IMG;
+        boolean pageHasContent = false;
+
+        for (int i = 0; i < blocks.size(); i++) {
+            Block block = blocks.get(i);
+            List<Line> lines = blockLines.get(i);
+            if (lines.isEmpty()) {
+                continue;
+            }
+
+            int blockHeight = blockHeights.get(i);
+            boolean hasMoreContent = false;
+            for (int j = i + 1; j < blockLines.size(); j++) {
+                if (!blockLines.get(j).isEmpty()) {
+                    hasMoreContent = true;
+                    break;
+                }
+            }
+
+            int requiredHeight = blockHeight + (hasMoreContent ? PARAGRAPH_SPACING_IMG : 0);
+            if (y + requiredHeight > maxContentBottom) {
+                if (pageHasContent) {
+                    g.dispose();
+                    pages.add(page);
+                } else {
+                    g.dispose();
+                }
                 page = newPageImage();
                 g = prepG(page);
                 y = MARGIN_TOP_IMG;
+                pageHasContent = false;
             }
-            // draw lines with alignment
+
             for (Line line : lines) {
                 int x = MARGIN_LEFT_IMG;
-                if ("center".equalsIgnoreCase(b.align)) {
+                if ("center".equalsIgnoreCase(block.align)) {
                     x = MARGIN_LEFT_IMG + (CONTENT_W_IMG - line.width) / 2;
-                } else if ("right".equalsIgnoreCase(b.align)) {
+                } else if ("right".equalsIgnoreCase(block.align)) {
                     x = PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - line.width;
                 }
                 if (line.layout != null) {
@@ -316,14 +355,28 @@ public class HtmlToPdfService {
                     g.drawString(line.text, x, y + line.ascent);
                 }
                 y += line.height;
+                pageHasContent = true;
             }
-            // paragraph spacing
-            y += scalePxToImg(8);
+
+            if (hasMoreContent) {
+                if (y + PARAGRAPH_SPACING_IMG > maxContentBottom) {
+                    g.dispose();
+                    pages.add(page);
+                    page = newPageImage();
+                    g = prepG(page);
+                    y = MARGIN_TOP_IMG;
+                    pageHasContent = false;
+                } else {
+                    y += PARAGRAPH_SPACING_IMG;
+                }
+            }
         }
 
-        // flush last page
-        pages.add(page);
         g.dispose();
+        if (pageHasContent || pages.isEmpty()) {
+            pages.add(page);
+        }
+
         return pages;
     }
 
