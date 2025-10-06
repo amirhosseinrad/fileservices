@@ -9,7 +9,6 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.w3c.dom.*;
 import org.xml.sax.InputSource;
 
-import javax.imageio.ImageIO;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.awt.*;
 import java.awt.font.FontRenderContext;
@@ -40,28 +39,24 @@ public class HtmlToPdfService {
     private static final double DPI = 150.0;                  // Image render DPI
     private static final int A4_WIDTH_PT = 595;               // PDF points
     private static final int A4_HEIGHT_PT = 842;              // PDF points
-    private static final int MARGIN_PT = 36;                  // 0.5 inch margin
-    private static final int PAGE_WIDTH_IMG = (int) Math.round(A4_WIDTH_PT * (DPI / 72.0));
-    private static final int PAGE_HEIGHT_IMG = (int) Math.round(A4_HEIGHT_PT * (DPI / 72.0));
-    private static final int MARGIN_IMG = (int) Math.round(MARGIN_PT * (DPI / 72.0));
-    private static final int CONTENT_W_IMG = PAGE_WIDTH_IMG - 2 * MARGIN_IMG;
-    private static final int CONTENT_H_IMG = PAGE_HEIGHT_IMG - 2 * MARGIN_IMG;
+    private static final int PAGE_WIDTH_IMG = ptToImg(A4_WIDTH_PT);
+    private static final int PAGE_HEIGHT_IMG = ptToImg(A4_HEIGHT_PT);
 
-    private static final int PAGE_WIDTH = 595;   // A4 width (8.27")
-    private static final int PAGE_HEIGHT = 842;  // A4 height (11.69")
+    private static final int PAGE_WIDTH = A4_WIDTH_PT;        // PDF points
+    private static final int PAGE_HEIGHT = A4_HEIGHT_PT;
 
-    private static final int MARGIN_LEFT = 50;
-    private static final int MARGIN_RIGHT = 50;
-    private static final int MARGIN_TOP = 70;
-    private static final int MARGIN_BOTTOM = 50;
+    private static final int MARGIN_LEFT_PT = 36;             // 0.5 inch
+    private static final int MARGIN_RIGHT_PT = 36;
+    private static final int MARGIN_TOP_PT = 36;
+    private static final int MARGIN_BOTTOM_PT = 36;
 
-    private static final int CONTENT_WIDTH = PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT;
-    private static final int CONTENT_HEIGHT = PAGE_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM;
+    private static final int MARGIN_LEFT_IMG = ptToImg(MARGIN_LEFT_PT);
+    private static final int MARGIN_RIGHT_IMG = ptToImg(MARGIN_RIGHT_PT);
+    private static final int MARGIN_TOP_IMG = ptToImg(MARGIN_TOP_PT);
+    private static final int MARGIN_BOTTOM_IMG = ptToImg(MARGIN_BOTTOM_PT);
 
-
-    // Header/footer height
-    private static final int HEADER_HEIGHT = 40;
-    private static final int FOOTER_HEIGHT = 30;
+    private static final int CONTENT_W_IMG = PAGE_WIDTH_IMG - MARGIN_LEFT_IMG - MARGIN_RIGHT_IMG;
+    private static final int PARAGRAPH_SPACING_IMG = scalePxToImg(8);
 
     // ---- Font resources (class-path) ----
     private static final String FONT_REGULAR = "/fonts/Vazirmatn-Regular.ttf";
@@ -89,23 +84,7 @@ public class HtmlToPdfService {
             List<Block> blocks = extractBlocks(doc.getDocumentElement());
 
             // Render XHTML blocks to page images
-            List<byte[]> pageJpegs = renderBlocksToPages(blocks);
-            List<BufferedImage> pages = new ArrayList<>();
-
-            // 👉 Draw headers, footers, and margins on each page
-            int pageNumber = 1;
-            for (byte[] bytes : pageJpegs) {
-                BufferedImage page = ImageIO.read(new ByteArrayInputStream(bytes));
-                Graphics2D g = page.createGraphics();
-                applyRenderingHints(g);
-
-                drawHeader(g, pageNumber);
-                drawFooter(g, pageNumber);
-
-                g.dispose();
-                pages.add(page);
-                pageNumber++;
-            }
+            List<BufferedImage> pages = renderBlocksToPages(blocks);
 
             // Build final PDF from images
             return buildPdfFromJpegs(pages);
@@ -114,15 +93,6 @@ public class HtmlToPdfService {
             throw new IllegalStateException("Failed to convert XHTML to PDF: " + e.getMessage(), e);
         }
     }
-
-    private void applyRenderingHints(Graphics2D g) {
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-        g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
-    }
-
 
     // Overload: stream input
     public byte[] convertXhtmlToPdf(InputStream in) {
@@ -229,6 +199,13 @@ public class HtmlToPdfService {
                 out.add(b);
                 break;
             }
+            case "style":
+            case "script":
+            case "head":
+            case "title": {
+                // ignore non-rendered content
+                return;
+            }
             default: {
                 // Unknown tag: recurse
                 NodeList ch = el.getChildNodes();
@@ -246,9 +223,12 @@ public class HtmlToPdfService {
                 if (!t.isEmpty()) spans.add(new Span(t, current.copy()));
             } else if (n.getNodeType() == Node.ELEMENT_NODE) {
                 Element e = (Element) n;
+                String tag = e.getTagName().toLowerCase(Locale.ROOT);
+                if (tag.equals("style") || tag.equals("script")) {
+                    continue;
+                }
                 Style s2 = current.copy();
                 applyInlineStyle(e, s2);
-                String tag = e.getTagName().toLowerCase(Locale.ROOT);
                 if (tag.equals("b") || tag.equals("strong")) s2.bold = true;
                 if (tag.equals("i") || tag.equals("em")) s2.italic = true;
 
@@ -315,31 +295,59 @@ public class HtmlToPdfService {
 
     // ---------- Rendering to page images ----------
 
-    private List<byte[]> renderBlocksToPages(List<Block> blocks) throws IOException {
-        List<byte[]> pages = new ArrayList<>();
-        int y = MARGIN_TOP;
+    private List<BufferedImage> renderBlocksToPages(List<Block> blocks) throws IOException {
+        List<BufferedImage> pages = new ArrayList<>();
         BufferedImage page = newPageImage();
         Graphics2D g = prepG(page);
 
+        List<List<Line>> blockLines = new ArrayList<>(blocks.size());
+        List<Integer> blockHeights = new ArrayList<>(blocks.size());
         for (Block b : blocks) {
-            // collapse consecutive spaces already done; now build attributed text
             List<Line> lines = layoutBlockToLines(g, b, CONTENT_W_IMG);
-            int blockHeight = lines.stream().mapToInt(line -> line.height).sum();
+            blockLines.add(lines);
+            blockHeights.add(lines.stream().mapToInt(line -> line.height).sum());
+        }
 
-            // page break if needed
-            if (y + blockHeight > PAGE_HEIGHT_IMG - MARGIN_IMG) {
-                pages.add(rasterToJpeg(page));
+        int y = MARGIN_TOP_IMG;
+        int maxContentBottom = PAGE_HEIGHT_IMG - MARGIN_BOTTOM_IMG;
+        boolean pageHasContent = false;
+
+        for (int i = 0; i < blocks.size(); i++) {
+            Block block = blocks.get(i);
+            List<Line> lines = blockLines.get(i);
+            if (lines.isEmpty()) {
+                continue;
+            }
+
+            int blockHeight = blockHeights.get(i);
+            boolean hasMoreContent = false;
+            for (int j = i + 1; j < blockLines.size(); j++) {
+                if (!blockLines.get(j).isEmpty()) {
+                    hasMoreContent = true;
+                    break;
+                }
+            }
+
+            int requiredHeight = blockHeight + (hasMoreContent ? PARAGRAPH_SPACING_IMG : 0);
+            if (y + requiredHeight > maxContentBottom) {
+                if (pageHasContent) {
+                    g.dispose();
+                    pages.add(page);
+                } else {
+                    g.dispose();
+                }
                 page = newPageImage();
                 g = prepG(page);
-                y = MARGIN_IMG;
+                y = MARGIN_TOP_IMG;
+                pageHasContent = false;
             }
-            // draw lines with alignment
+
             for (Line line : lines) {
-                int x = MARGIN_LEFT;
-                if ("center".equalsIgnoreCase(b.align)) {
-                    x = MARGIN_IMG + (CONTENT_W_IMG - line.width) / 2;
-                } else if ("right".equalsIgnoreCase(b.align)) {
-                    x = MARGIN_IMG + (CONTENT_W_IMG - line.width);
+                int x = MARGIN_LEFT_IMG;
+                if ("center".equalsIgnoreCase(block.align)) {
+                    x = MARGIN_LEFT_IMG + (CONTENT_W_IMG - line.width) / 2;
+                } else if ("right".equalsIgnoreCase(block.align)) {
+                    x = PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - line.width;
                 }
                 if (line.layout != null) {
                     line.layout.draw(g, x, y + line.ascent);
@@ -347,14 +355,28 @@ public class HtmlToPdfService {
                     g.drawString(line.text, x, y + line.ascent);
                 }
                 y += line.height;
+                pageHasContent = true;
             }
-            // paragraph spacing
-            y += scalePxToImg(8);
+
+            if (hasMoreContent) {
+                if (y + PARAGRAPH_SPACING_IMG > maxContentBottom) {
+                    g.dispose();
+                    pages.add(page);
+                    page = newPageImage();
+                    g = prepG(page);
+                    y = MARGIN_TOP_IMG;
+                    pageHasContent = false;
+                } else {
+                    y += PARAGRAPH_SPACING_IMG;
+                }
+            }
         }
 
-        // flush last page
-        pages.add(rasterToJpeg(page));
         g.dispose();
+        if (pageHasContent || pages.isEmpty()) {
+            pages.add(page);
+        }
+
         return pages;
     }
 
@@ -477,13 +499,11 @@ public class HtmlToPdfService {
         }
     }
 
-    private static int scalePxToImg(int px) { return px; }
-
-    private static byte[] rasterToJpeg(BufferedImage img) throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        ImageIO.write(img, "jpg", baos);
-        return baos.toByteArray();
+    private static int ptToImg(int pt) {
+        return (int) Math.round(pt * (DPI / 72.0));
     }
+
+    private static int scalePxToImg(int px) { return px; }
 
     // ---------- PDF building (images -> pages) ----------
 
@@ -616,32 +636,6 @@ public class HtmlToPdfService {
         return html
                 .replaceAll("(?i)<p([^>]*)>(.*?)((?=<p)|(?=<div)|(?=<table)|(?=<body)|(?=<html)|(?=$))", "<p$1>$2</p>");
     }
-
-    private void drawHeader(Graphics2D g, int pageNumber) {
-        g.setFont(new Font("Vazirmatn", Font.BOLD, 12));
-        g.setColor(Color.DARK_GRAY);
-        String headerText = "Company Confidential Report";
-        FontMetrics fm = g.getFontMetrics();
-        int textWidth = fm.stringWidth(headerText);
-        int x = (PAGE_WIDTH - textWidth) / 2;
-        int y = MARGIN_TOP - 20;
-        g.drawString(headerText, x, y);
-        g.drawLine(MARGIN_LEFT, MARGIN_TOP - 10, PAGE_WIDTH - MARGIN_RIGHT, MARGIN_TOP - 10);
-    }
-
-    private void drawFooter(Graphics2D g, int pageNumber) {
-        g.setFont(new Font("Vazirmatn", Font.PLAIN, 10));
-        g.setColor(Color.GRAY);
-        String footerText = "Page " + pageNumber;
-        FontMetrics fm = g.getFontMetrics();
-        int textWidth = fm.stringWidth(footerText);
-        int x = (PAGE_WIDTH - textWidth) / 2;
-        int y = PAGE_HEIGHT - MARGIN_BOTTOM + 20;
-        g.drawLine(MARGIN_LEFT, PAGE_HEIGHT - MARGIN_BOTTOM, PAGE_WIDTH - MARGIN_RIGHT, PAGE_HEIGHT - MARGIN_BOTTOM);
-        g.drawString(footerText, x, y);
-    }
-
-
 
 
 }
