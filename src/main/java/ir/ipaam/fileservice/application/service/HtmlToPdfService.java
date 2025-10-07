@@ -9,6 +9,7 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.w3c.dom.*;
 import org.xml.sax.InputSource;
 
+import javax.imageio.ImageIO;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.awt.*;
 import java.awt.font.FontRenderContext;
@@ -22,6 +23,8 @@ import java.text.AttributedCharacterIterator;
 import java.text.AttributedString;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Minimal HTML (XHTML) -> PDF converter with zero external libraries.
@@ -73,38 +76,101 @@ public class HtmlToPdfService {
         this.fontItalic  = loadFontOrFallback(FONT_ITALIC, Font.ITALIC);
     }
 
-    // Public API: convert XHTML string to PDF bytes
-    public byte[] convertXhtmlToPdf(String xhtml) {
+    private static final Pattern PLACEHOLDER =
+            Pattern.compile("\\{\\{\\s*([A-Za-z0-9_\\.]+)(?:\\s*\\|\\s*(raw))?\\s*\\}\\}");
+
+    public static String renderTemplate(String xhtml, Map<String, Object> model) {
+        if (xhtml == null) return "";
+        Matcher m = PLACEHOLDER.matcher(xhtml);
+        StringBuffer out = new StringBuffer(xhtml.length());
+        while (m.find()) {
+            String key = m.group(1);
+            boolean raw = "raw".equalsIgnoreCase(m.group(2));
+            Object val = lookup(model, key);           // dot-notation aware
+            String s = val == null ? "" : String.valueOf(val);
+            // normalize digits to Persian if you want consistent numerals:
+            s = toPersianDigits(s);
+            // escape unless |raw was used
+            m.appendReplacement(out, raw ? Matcher.quoteReplacement(s)
+                    : Matcher.quoteReplacement(htmlEscape(s)));
+        }
+        m.appendTail(out);
+        return out.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object lookup(Map<String, Object> root, String path) {
+        if (root == null || path == null) return null;
+        Object cur = root;
+        for (String part : path.split("\\.")) {
+            if (!(cur instanceof Map)) return null;
+            cur = ((Map<String, Object>) cur).get(part);
+            if (cur == null) return null;
+        }
+        return cur;
+    }
+
+    private static String htmlEscape(String s) {
+        StringBuilder b = new StringBuilder(s.length() + 16);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '&' -> b.append("&amp;");
+                case '<' -> b.append("&lt;");
+                case '>' -> b.append("&gt;");
+                case '"' -> b.append("&quot;");
+                case '\''-> b.append("&#39;");
+                default  -> b.append(c);
+            }
+        }
+        return b.toString();
+    }
+
+    private static String stripUtf8Bom(String s) {
+        return (s != null && s.startsWith("\uFEFF")) ? s.substring(1) : s;
+    }
+
+
+    public byte[] convertXhtmlToPdf(InputStream htmlIn, InputStream cssIn, Map<String, Object> model, ResourceResolver rr) {
+        Objects.requireNonNull(htmlIn, "htmlIn");
+        Objects.requireNonNull(cssIn, "cssIn");
+        Objects.requireNonNull(rr, "resolver");
+        try (htmlIn; cssIn) {
+            String html = new String(htmlIn.readAllBytes(), StandardCharsets.UTF_8);
+            String css  = new String(cssIn.readAllBytes(),  StandardCharsets.UTF_8);
+            html = stripUtf8Bom(html);
+            css  = stripUtf8Bom(css);
+
+            String merged   = mergeHtmlAndCss(html, css);
+            String rendered = (model == null || model.isEmpty()) ? merged : renderTemplate(merged, model);
+
+            return convertXhtmlToPdf(rendered, rr);
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException("Failed reading HTML/CSS", e);
+        }
+    }
+
+    public byte[] convertXhtmlToPdf(String xhtml,ResourceResolver rr) throws IOException {
         xhtml = sanitizeEntities(xhtml);
         xhtml = fixUnclosedPTags(xhtml);
 
         try {
-            // Parse and extract renderable blocks
             Document doc = parseXhtml(xhtml);
-            List<Block> blocks = extractBlocks(doc.getDocumentElement());
-
-            // Render XHTML blocks to page images
+            CssEngine css = CssEngine.from(doc);
+            List<Block> blocks = extractBlocks(doc.getDocumentElement(), css, rr);
             List<BufferedImage> pages = renderBlocksToPages(blocks);
-
-            // Build final PDF from images
             return buildPdfFromJpegs(pages);
-
         } catch (Exception e) {
             throw new IllegalStateException("Failed to convert XHTML to PDF: " + e.getMessage(), e);
         }
     }
 
-    // Overload: stream input
-    public byte[] convertXhtmlToPdf(InputStream in) {
-        try (in) {
-            String xhtml = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            return convertXhtmlToPdf(xhtml);
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed reading XHTML: " + e.getMessage(), e);
-        }
+    @FunctionalInterface
+    public interface ResourceResolver {
+        InputStream open(String src) throws IOException;
     }
 
-    // ---------- Parsing ----------
 
     private Document parseXhtml(String xhtml) {
         try {
@@ -119,22 +185,19 @@ public class HtmlToPdfService {
         }
     }
 
-    // Extracts linear list of "blocks" (paragraph-like) with inline spans and styles
-    private List<Block> extractBlocks(Element root) {
+    private List<Block> extractBlocks(Element root, CssEngine css,ResourceResolver rr) {
         List<Block> out = new ArrayList<>();
-        walk(root, new Style(), out);
+        walk(root, new Style(), out, css,rr);
         return out;
     }
 
-    // DFS through nodes; build Block list
-    private void walk(Node node, Style inherited, List<Block> out) {
+    private void walk(Node node, Style inherited, List<Block> out, CssEngine css, ResourceResolver rr) {
         if (node.getNodeType() == Node.TEXT_NODE) {
             String txt = normalizeSpaces(node.getTextContent());
             if (!txt.isEmpty()) {
-                // Attach to last block or create a default left-aligned block
                 if (out.isEmpty()) {
                     Block b = new Block();
-                    b.align = "right"; // Persian default
+                    b.align = "right";
                     out.add(b);
                 }
                 out.get(out.size() - 1).spans.add(new Span(txt, inherited.copy()));
@@ -142,79 +205,150 @@ public class HtmlToPdfService {
             return;
         }
         if (node.getNodeType() != Node.ELEMENT_NODE) {
-            // ignore comments, etc.
             NodeList ch = node.getChildNodes();
-            for (int i = 0; i < ch.getLength(); i++) walk(ch.item(i), inherited, out);
+            for (int i = 0; i < ch.getLength(); i++) walk(ch.item(i), inherited, out, css,rr);
             return;
         }
 
         Element el = (Element) node;
         String tag = el.getTagName().toLowerCase(Locale.ROOT);
 
-        // Compute local style
-        Style current = inherited.copy();
-        applyInlineStyle(el, current);
-
+        // Compute style from CSS (no inline)
+        Style current = css.apply(el, inherited);
         switch (tag) {
-            case "div":
+            case "img": {
+                String src = el.getAttribute("src");
+                if (src != null && !src.isBlank()) {
+                    try (InputStream in = openImage(src, rr)) {
+                        BufferedImage bi = ImageIO.read(in);
+                        if (bi != null) {
+                            Block b = new Block();
+                            b.align = inherited.textAlign != null ? inherited.textAlign : "right";
+                            b.image = bi;
+
+                            // read optional width/height *attributes* (numbers or like "140px")
+                            String w = el.getAttribute("width");
+                            String h = el.getAttribute("height");
+                            if (w != null && !w.isBlank()) b.imgAttrWidthPx  = parseIntPxAttr(w);
+                            if (h != null && !h.isBlank()) b.imgAttrHeightPx = parseIntPxAttr(h);
+
+                            // allow vertical spacing via CSS margins from current style
+                            b.marginTopPx = inherited.marginTopPx;
+                            b.marginBottomPx = inherited.marginBottomPx;
+
+                            out.add(b);
+                        }
+                    } catch (IOException ignore) {
+                        // you could log: image missing; silently skip to keep rendering robust
+                    }
+                }
+                break;
+            }
+            // ---- real block elements -> 1 block each ----
             case "p":
             case "h1":
             case "h2":
             case "h3": {
-                Block b = new Block();
-                // headings: larger default font
+                // bump heading font-size BEFORE collecting spans
                 if (tag.equals("h1")) current.fontSize = Math.max(current.fontSize, 28f);
                 if (tag.equals("h2")) current.fontSize = Math.max(current.fontSize, 22f);
                 if (tag.equals("h3")) current.fontSize = Math.max(current.fontSize, 18f);
+
+                Block b = new Block();
                 b.align = current.textAlign != null ? current.textAlign : "right";
-                // collect child inline spans
-                collectInline(el, current, b.spans);
-                // always terminate block
+                b.marginTopPx = current.marginTopPx;
+                b.marginBottomPx = current.marginBottomPx;
+                b.lineHeightPx = current.lineHeightPx;
+                b.lineHeightMult = current.lineHeightMult;
+                collectInline(el, current, b.spans, css);  // only inline children of THIS block element
                 out.add(b);
                 break;
             }
+
+            // ---- <br/> should create a visible blank line ----
+            case "br": {
+                Block b = new Block();
+                b.align = current.textAlign != null ? current.textAlign : "right";
+                // use current line-height (or 1.2× font size fallback) as vertical step
+                if (current.lineHeightPx != null) {
+                    b.marginTopPx = current.lineHeightPx;
+                } else if (current.lineHeightMult != null) {
+                    b.marginTopPx = current.fontSize * current.lineHeightMult;
+                } else {
+                    b.marginTopPx = current.fontSize * 1.2f;
+                }
+                // no spans -> just vertical space
+                out.add(b);
+                break;
+            }
+
+            // ---- containers: just recurse; DO NOT flatten children into one block ----
+            case "div":
+            case "body":
+            case "thead":
+            case "tbody":
+            case "tfoot":
+            case "tr":
+            case "td":
+            case "th":
+            case "table": {
+                NodeList ch = el.getChildNodes();
+                for (int i = 0; i < ch.getLength(); i++) walk(ch.item(i), current, out, css,rr);
+                break;
+            }
+
+            // ---- inline wrappers -> keep adding into the current paragraph ----
             case "span":
             case "b":
             case "strong":
             case "i":
             case "em": {
-                // inline container; attach to last block or create one
                 if (out.isEmpty()) {
                     Block b = new Block();
                     b.align = current.textAlign != null ? current.textAlign : "right";
                     out.add(b);
                 }
-                // adjust style by tag semantics
-                if (tag.equals("b") || tag.equals("strong")) current.bold = true;
-                if (tag.equals("i") || tag.equals("em")) current.italic = true;
-
                 List<Span> spans = out.get(out.size() - 1).spans;
-                collectInline(el, current, spans);
+                collectInline(el, current, spans, css);
                 break;
             }
-            case "br": {
-                // force new block
-                Block b = new Block();
-                b.align = current.textAlign != null ? current.textAlign : "right";
-                out.add(b);
-                break;
-            }
+
+            // ---- ignored head-y tags ----
             case "style":
             case "script":
             case "head":
-            case "title": {
-                // ignore non-rendered content
+            case "title":
                 return;
-            }
+
+            // ---- default: container-ish; recurse ----
             default: {
-                // Unknown tag: recurse
                 NodeList ch = el.getChildNodes();
-                for (int i = 0; i < ch.getLength(); i++) walk(ch.item(i), current, out);
+                for (int i = 0; i < ch.getLength(); i++) walk(ch.item(i), current, out, css,rr);
             }
         }
+
     }
 
-    private void collectInline(Element container, Style current, List<Span> spans) {
+    private static int parseIntPxAttr(String v) {
+        v = v.trim().toLowerCase(Locale.ROOT);
+        if (v.endsWith("px")) v = v.substring(0, v.length()-2);
+        return Integer.parseInt(v.replaceAll("[^0-9]", ""));
+    }
+
+    private static InputStream openImage(String src, ResourceResolver rr) throws IOException {
+        src = src.trim();
+        if (src.startsWith("data:image/")) {
+            // basic data URI support (optional)
+            int comma = src.indexOf(',');
+            String base64 = comma >= 0 ? src.substring(comma + 1) : "";
+            byte[] bytes = Base64.getDecoder().decode(base64);
+            return new ByteArrayInputStream(bytes);
+        }
+        return rr.open(src.startsWith("./") ? src.substring(2) : src);
+    }
+
+
+    private void collectInline(Element container, Style current, List<Span> spans, CssEngine css) {
         NodeList ch = container.getChildNodes();
         for (int i = 0; i < ch.getLength(); i++) {
             Node n = ch.item(i);
@@ -223,77 +357,16 @@ public class HtmlToPdfService {
                 if (!t.isEmpty()) spans.add(new Span(t, current.copy()));
             } else if (n.getNodeType() == Node.ELEMENT_NODE) {
                 Element e = (Element) n;
-                String tag = e.getTagName().toLowerCase(Locale.ROOT);
-                if (tag.equals("style") || tag.equals("script")) {
-                    continue;
-                }
-                Style s2 = current.copy();
-                applyInlineStyle(e, s2);
-                if (tag.equals("b") || tag.equals("strong")) s2.bold = true;
-                if (tag.equals("i") || tag.equals("em")) s2.italic = true;
-
-                collectInline(e, s2, spans);
+                Style s2 = css.apply(e, current);
+                collectInline(e, s2, spans, css);
             }
         }
     }
+
 
     private static String normalizeSpaces(String s) {
         return s == null ? "" : s.replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
     }
-
-    // Parse inline style="..."
-    private void applyInlineStyle(Element el, Style s) {
-        String style = el.getAttribute("style");
-        if (style == null || style.isBlank()) return;
-
-        String[] parts = style.split(";");
-        for (String part : parts) {
-            String[] kv = part.split(":", 2);
-            if (kv.length != 2) continue;
-            String key = kv[0].trim().toLowerCase(Locale.ROOT);
-            String val = kv[1].trim().toLowerCase(Locale.ROOT);
-
-            switch (key) {
-                case "font-weight":
-                    s.bold = val.contains("bold") || val.equals("700") || val.equals("800") || val.equals("900");
-                    break;
-                case "font-style":
-                    s.italic = val.contains("italic") || val.contains("oblique");
-                    break;
-                case "font-size":
-                    // supports px only
-                    if (val.endsWith("px")) {
-                        try { s.fontSize = Float.parseFloat(val.replace("px", "").trim()); } catch (Exception ignore) {}
-                    }
-                    break;
-                case "color":
-                    s.color = parseCssColor(val);
-                    break;
-                case "text-align":
-                    if (val.equals("right") || val.equals("left") || val.equals("center")) s.textAlign = val;
-                    break;
-            }
-        }
-    }
-
-    private static Color parseCssColor(String v) {
-        try {
-            if (v.startsWith("#")) {
-                String hex = v.substring(1);
-                if (hex.length() == 3) {
-                    int r = Integer.parseInt(hex.substring(0,1)+hex.substring(0,1), 16);
-                    int g = Integer.parseInt(hex.substring(1,2)+hex.substring(1,2), 16);
-                    int b = Integer.parseInt(hex.substring(2,3)+hex.substring(2,3), 16);
-                    return new Color(r, g, b);
-                } else if (hex.length() == 6) {
-                    return new Color(Integer.parseInt(hex, 16));
-                }
-            }
-        } catch (Exception ignore) {}
-        return Color.BLACK;
-    }
-
-    // ---------- Rendering to page images ----------
 
     private List<BufferedImage> renderBlocksToPages(List<Block> blocks) throws IOException {
         List<BufferedImage> pages = new ArrayList<>();
@@ -303,11 +376,17 @@ public class HtmlToPdfService {
         List<List<Line>> blockLines = new ArrayList<>(blocks.size());
         List<Integer> blockHeights = new ArrayList<>(blocks.size());
         for (Block b : blocks) {
-            List<Line> lines = layoutBlockToLines(g, b, CONTENT_W_IMG);
-            blockLines.add(lines);
-            blockHeights.add(lines.stream().mapToInt(line -> line.height).sum());
+            if (b.image != null) {
+                blockLines.add(Collections.emptyList());
+                int[] wh = measureImageDisplayWH(b.image.getWidth(), b.image.getHeight(),
+                        b.imgAttrWidthPx, b.imgAttrHeightPx, CONTENT_W_IMG);
+                blockHeights.add(wh[1]); // display height
+            } else {
+                List<Line> lines = layoutBlockToLines(g, b, CONTENT_W_IMG);
+                blockLines.add(lines);
+                blockHeights.add(lines.stream().mapToInt(line -> line.height).sum());
+            }
         }
-
         int y = MARGIN_TOP_IMG;
         int maxContentBottom = PAGE_HEIGHT_IMG - MARGIN_BOTTOM_IMG;
         boolean pageHasContent = false;
@@ -315,62 +394,65 @@ public class HtmlToPdfService {
         for (int i = 0; i < blocks.size(); i++) {
             Block block = blocks.get(i);
             List<Line> lines = blockLines.get(i);
-            if (lines.isEmpty()) {
-                continue;
-            }
-
             int blockHeight = blockHeights.get(i);
-            boolean hasMoreContent = false;
-            for (int j = i + 1; j < blockLines.size(); j++) {
-                if (!blockLines.get(j).isEmpty()) {
-                    hasMoreContent = true;
-                    break;
-                }
-            }
 
-            int requiredHeight = blockHeight + (hasMoreContent ? PARAGRAPH_SPACING_IMG : 0);
-            if (y + requiredHeight > maxContentBottom) {
-                if (pageHasContent) {
-                    g.dispose();
-                    pages.add(page);
-                } else {
-                    g.dispose();
-                }
+            int topM = Math.round(block.marginTopPx);
+            int bottomM = Math.round(block.marginBottomPx);
+            int required = topM + blockHeight + bottomM;
+
+            if (y + required > maxContentBottom) {
+                g.dispose();
+                if (pageHasContent) pages.add(page);
                 page = newPageImage();
                 g = prepG(page);
                 y = MARGIN_TOP_IMG;
                 pageHasContent = false;
             }
 
-            for (Line line : lines) {
-                int x = MARGIN_LEFT_IMG;
-                if ("center".equalsIgnoreCase(block.align)) {
-                    x = MARGIN_LEFT_IMG + (CONTENT_W_IMG - line.width) / 2;
-                } else if ("right".equalsIgnoreCase(block.align)) {
-                    x = PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - line.width;
-                }
-                if (line.layout != null) {
-                    line.layout.draw(g, x, y + line.ascent);
-                } else if (line.text != null) {
-                    g.drawString(line.text, x, y + line.ascent);
-                }
-                y += line.height;
+            // top margin (even if no lines)
+            if (topM > 0) {
+                y += topM;
                 pageHasContent = true;
             }
 
-            if (hasMoreContent) {
-                if (y + PARAGRAPH_SPACING_IMG > maxContentBottom) {
+            // draw lines (if any)
+            for (Line line : lines) {
+                if (y + line.height > maxContentBottom) {
                     g.dispose();
-                    pages.add(page);
+                    if (pageHasContent) pages.add(page);
                     page = newPageImage();
                     g = prepG(page);
                     y = MARGIN_TOP_IMG;
                     pageHasContent = false;
-                } else {
-                    y += PARAGRAPH_SPACING_IMG;
                 }
+
+                int x;
+                if ("justify".equalsIgnoreCase(line.align) && line.layout != null) {
+                    boolean ltr = line.layout.isLeftToRight();
+                    x = ltr ? MARGIN_LEFT_IMG : PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - CONTENT_W_IMG;
+                } else if ("center".equalsIgnoreCase(line.align)) {
+                    x = MARGIN_LEFT_IMG + (CONTENT_W_IMG - line.width) / 2;
+                } else if ("right".equalsIgnoreCase(line.align)) {
+                    x = PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - line.width;
+                } else {
+                    x = MARGIN_LEFT_IMG;
+                }
+
+                int baseline = y + line.ascent;
+                if (line.layout != null) line.layout.draw(g, x, baseline);
+                else if (line.text != null) g.drawString(line.text, x, baseline);
+
+                y += line.height;
+                pageHasContent = true;
+            }
+
+            // bottom margin (even if no lines)
+            if (bottomM > 0) {
+                y += bottomM;
+                pageHasContent = true;
             }
         }
+
 
         g.dispose();
         if (pageHasContent || pages.isEmpty()) {
@@ -379,6 +461,22 @@ public class HtmlToPdfService {
 
         return pages;
     }
+
+    private static int[] measureImageDisplayWH(int naturalW, int naturalH,
+                                               Integer attrW, Integer attrH,
+                                               int maxContentW) {
+        double w = (attrW != null) ? attrW : naturalW;
+        double h = (attrH != null) ? attrH : naturalH;
+        // keep aspect if only one attr provided
+        if (attrW != null && attrH == null) h = naturalH * (w / naturalW);
+        if (attrH != null && attrW == null) w = naturalW * (h / naturalH);
+        // fit to content width
+        double scale = w > maxContentW ? (double) maxContentW / w : 1.0;
+        int dispW = (int) Math.round(w * scale);
+        int dispH = (int) Math.round(h * scale);
+        return new int[]{ dispW, dispH };
+    }
+
 
     private static BufferedImage newPageImage() {
         BufferedImage img = new BufferedImage(PAGE_WIDTH_IMG, PAGE_HEIGHT_IMG, BufferedImage.TYPE_INT_RGB);
@@ -419,6 +517,10 @@ public class HtmlToPdfService {
             Font f2 = base.deriveFont(px);
             attr.addAttribute(TextAttribute.FONT, f2, r.start, r.end);
             attr.addAttribute(TextAttribute.FOREGROUND, r.style.color, r.start, r.end);
+            if (r.style.underline) {
+                attr.addAttribute(TextAttribute.UNDERLINE, TextAttribute.UNDERLINE_ON, r.start, r.end);
+            }
+
             // Let Java handle bidi/RTL automatically via characters
         }
 
@@ -464,26 +566,80 @@ public class HtmlToPdfService {
         // To keep alignment + colors correct, we’ll do this:
         // - Recompute width via TextLayout for each line (done)
         // - Draw via TextLayout to preserve span colors: we need a 2nd pass right below
-        return recolorLinesWithLayouts(attr, frc, maxWidth, b.align);
+        return  recolorLinesWithLayouts(attr, frc, maxWidth, b);
     }
 
+    private static boolean startsWithMarker(String s) {
+        if (s == null) return false;
+        String t = normalizeSpaces(s).trim();
+        return t.startsWith("ماده") || t.startsWith("تبصره");
+    }
+
+    private static String toPersianDigits(String s) {
+        if (s == null || s.isEmpty()) return s;
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch >= '0' && ch <= '9') {
+                sb.append((char) ('\u06F0' + (ch - '0')));                 // 0–9 → ۰–۹
+            } else if (ch >= '\u0660' && ch <= '\u0669') {
+                sb.append((char) ('\u06F0' + (ch - '\u0660')));             // ٠–٩ → ۰–۹
+            } else {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
+    }
+
+
+    private static String slice(AttributedCharacterIterator it, int start, int end) {
+        StringBuilder sb = new StringBuilder();
+        it.setIndex(start);
+        for (int i = start; i < end; i++) { sb.append(it.current()); it.next(); }
+        return sb.toString();
+    }
     // Re-run the layout to produce drawable TextLayouts with correct colors
-    private List<Line> recolorLinesWithLayouts(AttributedString attr, FontRenderContext frc, int maxWidth, String align) {
+    private List<Line> recolorLinesWithLayouts(AttributedString attr,
+                                               FontRenderContext frc,
+                                               int maxWidth,
+                                               Block block) {
         List<Line> out = new ArrayList<>();
         AttributedCharacterIterator it = attr.getIterator();
         LineBreakMeasurer lbm = new LineBreakMeasurer(it, frc);
         int paragraphStart = it.getBeginIndex();
-        int paragraphEnd = it.getEndIndex();
+        int paragraphEnd   = it.getEndIndex();
         lbm.setPosition(paragraphStart);
+
         while (lbm.getPosition() < paragraphEnd) {
             TextLayout layout = lbm.nextLayout(maxWidth);
-            int ascent = (int) Math.ceil(layout.getAscent());
+            int ascent  = (int) Math.ceil(layout.getAscent());
             int descent = (int) Math.ceil(layout.getDescent() + layout.getLeading());
-            int height = ascent + descent;
-            int width = (int) Math.ceil(layout.getVisibleAdvance());
+            int baseH   = ascent + descent;
+
+            int height;
+            if (block.lineHeightPx != null)      height = (int) Math.ceil(block.lineHeightPx);
+            else if (block.lineHeightMult != null) height = (int) Math.ceil(baseH * block.lineHeightMult);
+            else                                   height = baseH;
+
+            int after = lbm.getPosition();
+            int start = after - layout.getCharacterCount();
+            String lineText = slice(it, start, after);
+            boolean isLastLine = (after >= paragraphEnd);
+            boolean isMarker   = startsWithMarker(lineText);
+
+            int width;
+            if ("justify".equalsIgnoreCase(block.align) && !isLastLine && !isMarker) {
+                try { layout = layout.getJustifiedLayout(maxWidth); } catch (Exception ignore) {}
+                width = maxWidth;
+            } else {
+                width = (int) Math.ceil(layout.getVisibleAdvance());
+            }
+
+            String align = isMarker ? "right" : (block.align == null ? "right" : block.align);
             out.add(new Line(layout, width, height, ascent, align));
         }
         return out;
+
     }
 
     private Font pickFont(Style s) {
@@ -551,7 +707,14 @@ public class HtmlToPdfService {
         boolean italic = false;
         float fontSize = 16f;
         Color color = Color.BLACK;
-        String textAlign = null; // "right", "left", "center"
+        boolean underline = false;
+        String textAlign = "right";
+
+        // NEW:
+        Float lineHeightPx = null;      // explicit px
+        Float lineHeightMult = null;    // unitless multiplier (e.g., 1.5)
+        float marginTopPx = 0f;
+        float marginBottomPx = 0f;
 
         Style copy() {
             Style s = new Style();
@@ -560,9 +723,15 @@ public class HtmlToPdfService {
             s.fontSize = this.fontSize;
             s.color = this.color;
             s.textAlign = this.textAlign;
+            s.lineHeightPx = this.lineHeightPx;
+            s.lineHeightMult = this.lineHeightMult;
+            s.marginTopPx = this.marginTopPx;
+            s.marginBottomPx = this.marginBottomPx;
+            s.underline = this.underline; // NEW
             return s;
         }
     }
+
 
     private static class Span {
         final String text;
@@ -571,8 +740,18 @@ public class HtmlToPdfService {
     }
 
     private static class Block {
-        String align = "right"; // default for Persian
+        String align = "right";
         List<Span> spans = new ArrayList<>();
+        // NEW:
+        float marginTopPx = 0f;
+        float marginBottomPx = 0f;
+        Float lineHeightPx = null;
+        Float lineHeightMult = null;
+
+        BufferedImage image = null;
+        Integer imgAttrWidthPx = null;   // from width/height attributes if present
+        Integer imgAttrHeightPx = null;
+        transient AttributedString _attr;
     }
 
     private static class SpanRun {
@@ -636,6 +815,388 @@ public class HtmlToPdfService {
         return html
                 .replaceAll("(?i)<p([^>]*)>(.*?)((?=<p)|(?=<div)|(?=<table)|(?=<body)|(?=<html)|(?=$))", "<p$1>$2</p>");
     }
+
+    // ===== CSS ENGINE (minimal) =====
+    private static class CssRule {
+        final String rawSelector;
+        final String tag;         // nullable
+        final String id;          // nullable (without '#')
+        final Set<String> classes; // lowercase
+        final int specificity;    // id:100, class:10 each, tag:1
+        final int order;          // source order
+        final Map<String, String> decls; // normalized props
+
+        CssRule(String rawSelector, String tag, String id, Set<String> classes, int specificity, int order, Map<String,String> decls) {
+            this.rawSelector = rawSelector; this.tag = tag; this.id = id; this.classes = classes;
+            this.specificity = specificity; this.order = order; this.decls = decls;
+        }
+
+        boolean matches(Element el) {
+            if (tag != null && !tag.equalsIgnoreCase(el.getTagName())) return false;
+            if (id != null && !id.equals(el.getAttribute("id"))) return false;
+            if (!classes.isEmpty()) {
+                String cls = el.getAttribute("class");
+                if (cls == null || cls.isBlank()) return false;
+                Set<String> elClasses = new HashSet<>(Arrays.asList(cls.toLowerCase(Locale.ROOT).trim().split("\\s+")));
+                if (!elClasses.containsAll(classes)) return false;
+            }
+            return true;
+        }
+    }
+
+    private static class CssEngine {
+        final List<CssRule> rules;
+
+        private CssEngine(List<CssRule> rules) { this.rules = rules; }
+
+        static CssEngine from(Document doc) {
+            List<CssRule> out = new ArrayList<>();
+            out.addAll(parseCss(UA_CSS, 0));
+            int order = out.size();
+            NodeList styles = doc.getElementsByTagName("style");
+            for (int i = 0; i < styles.getLength(); i++) {
+                Node n = styles.item(i);
+                String css = n.getTextContent();
+                if (css == null || css.isBlank()) continue;
+                out.addAll(parseCss(css, order));
+                order = out.size();
+            }
+            return new CssEngine(out);
+        }
+
+        private static List<CssRule> parseCss(String css, int startOrder) {
+            // strip comments
+            css = css.replaceAll("/\\*.*?\\*/", " ");
+            List<CssRule> out = new ArrayList<>();
+            int order = startOrder;
+
+            for (String block : css.split("}")) {
+                String[] parts = block.split("\\{", 2);
+                if (parts.length != 2) continue;
+                String selectors = parts[0].trim();
+                String body = parts[1].trim();
+                if (selectors.isEmpty() || body.isEmpty()) continue;
+
+                Map<String,String> decls = new HashMap<>();
+                for (String decl : body.split(";")) {
+                    String d = decl.trim();
+                    if (d.isEmpty()) continue;
+                    String[] kv = d.split(":", 2);
+                    if (kv.length != 2) continue;
+                    String key = kv[0].trim().toLowerCase(Locale.ROOT);
+                    String val = kv[1].replace("!important","").trim().toLowerCase(Locale.ROOT);
+                    switch (key) {
+                        case "font-weight":
+                        case "font-style":
+                        case "font-size":
+                        case "color":
+                        case "text-align":
+                        case "line-height":
+                        case "margin-top":
+                        case "margin-bottom":
+                        case "margin":
+                            decls.put(key, val);
+                            break;
+                    }
+                }
+                if (decls.isEmpty()) continue;
+
+                for (String sel : selectors.split(",")) {
+                    String s = sel.trim();
+                    if (s.isEmpty()) continue;
+                    CssRule rule = parseSelector(s, decls, order++);
+                    if (rule != null) out.add(rule);
+                }
+            }
+            return out;
+        }
+
+        // supports: tag, .class, #id, and combos like p.lead, span.text-danger, h1#title.big
+        private static CssRule parseSelector(String s, Map<String,String> decls, int order) {
+            String tag = null, id = null;
+            Set<String> classes = new HashSet<>();
+            String rest = s;
+
+            // reject selectors containing spaces/combinators/pseudo
+            if (rest.matches(".*\\s+.*") || rest.contains(">") || rest.contains("+") || rest.contains("~") || rest.contains(":"))
+                return null;
+
+            // Extract tag (leading [a-z][\w-]*)
+            java.util.regex.Matcher mTag = java.util.regex.Pattern.compile("^([a-zA-Z][\\w-]*)").matcher(rest);
+            if (mTag.find()) {
+                tag = mTag.group(1).toLowerCase(Locale.ROOT);
+                rest = rest.substring(mTag.end());
+            }
+
+            // Extract #id and .classes (orderless)
+            java.util.regex.Matcher m;
+            while (!rest.isEmpty()) {
+                if (rest.startsWith("#")) {
+                    m = java.util.regex.Pattern.compile("^#([\\w-]+)").matcher(rest);
+                    if (m.find()) {
+                        id = m.group(1);
+                        rest = rest.substring(m.end());
+                    } else return null;
+                } else if (rest.startsWith(".")) {
+                    m = java.util.regex.Pattern.compile("^\\.([\\w-]+)").matcher(rest);
+                    if (m.find()) {
+                        classes.add(m.group(1).toLowerCase(Locale.ROOT));
+                        rest = rest.substring(m.end());
+                    } else return null;
+                } else {
+                    return null; // unknown token
+                }
+            }
+
+            int spec = 0;
+            if (id != null) spec += 100;
+            spec += classes.size() * 10;
+            if (tag != null) spec += 1;
+            return new CssRule(s, tag, id, classes, spec, order, decls);
+        }
+
+        // Compute cascaded style overrides for an element
+        Style apply(Element el, Style inherited) {
+            Style s = inherited.copy();
+            // find matching rules
+            List<CssRule> matches = new ArrayList<>();
+            for (CssRule r : rules) if (r.matches(el)) matches.add(r);
+            // sort by specificity then order
+            matches.sort(Comparator.<CssRule>comparingInt(r -> r.specificity)
+                    .thenComparingInt(r -> r.order));
+            // apply in order (low -> high)
+            for (CssRule r : matches) applyDecls(r.decls, s, inherited);
+            // tag semantics: <b>/<strong>/<i>/<em>
+            String tag = el.getTagName().toLowerCase(Locale.ROOT);
+            if (tag.equals("b") || tag.equals("strong")) s.bold = true;
+            if (tag.equals("i") || tag.equals("em"))     s.italic = true;
+            if (tag.equals("u"))                         s.underline = true; // NEW
+            if (s.textAlign == null) s.textAlign = "right";
+
+            return s;
+        }
+
+        private static final boolean DEBUG_CSS = false;
+
+        private static void applyDecls(Map<String,String> d, Style s, Style parent) {
+            for (Map.Entry<String,String> e : d.entrySet()) {
+                String k = e.getKey();
+                String v = e.getValue();
+                switch (k) {
+                    case "font-weight": {
+                        Integer w = parseFontWeight(v);
+                        if (w != null) s.bold = (w >= 600) || "bold".equals(v);
+                        break;
+                    }
+                    case "font-style":
+                        s.italic = v.contains("italic") || v.contains("oblique");
+                        break;
+
+                    case "font-size": {
+                        Float px = parseFontSizePx(v, parent.fontSize);
+                        if (px != null) s.fontSize = px;
+                        break;
+                    }
+                    case "color": {
+                        Color c = parseCssColor(v);
+                        if (c != null) s.color = c;
+                        break;
+                    }
+                    case "text-align":
+                        switch (v) {
+                            case "left":
+                            case "right":
+                            case "center":
+                            case "justify":            // ✅ NEW
+                                s.textAlign = v;
+                                break;
+                        }
+                        break;
+
+                    case "line-height": {
+                        parseLineHeight(v, parent, s);
+                        break;
+                    }
+
+                    case "margin-top": {
+                        Float mt = parseLengthPx(v, parent.fontSize);
+                        if (mt != null) s.marginTopPx = mt;  // only set if valid
+                        break;
+                    }
+                    case "margin-bottom": {
+                        Float mb = parseLengthPx(v, parent.fontSize);
+                        if (mb != null) s.marginBottomPx = mb;
+                        break;
+                    }
+
+                    // Accept full shorthand: margin: [1-4 values]
+                    case "margin": {
+                        float[] tb = parseMarginShorthand(v, parent.fontSize);
+                        s.marginTopPx = tb[0];
+                        s.marginBottomPx = tb[1];
+                        break;
+                    }
+                    case "text-decoration": {
+                        if (v.contains("underline")) s.underline = true;
+                        break;
+                    }
+
+                    // We currently ignore horizontal margins, but parsing them avoids surprises.
+                    case "margin-left":
+                    case "margin-right":
+                        /* parseLengthPx(v, parent.fontSize); // intentionally ignored */
+                        break;
+
+                    default:
+                        if (DEBUG_CSS) System.out.println("CSS ignored: " + k + ":" + v);
+                }
+            }
+        }
+
+        private static void safeSetMarginTop(Style s, String v, float parentPx) {
+            Float mt = parseLengthPx(v, parentPx);
+            if (mt != null) s.marginTopPx = mt;
+            else /* debug */ System.out.println("Ignored margin-top: '" + v + "'");
+        }
+
+
+        private static void parseLineHeight(String v, Style parent, Style s) {
+            if ("normal".equals(v)) { s.lineHeightPx = null; s.lineHeightMult = null; return; }
+            try {
+                // unitless multiplier
+                float m = Float.parseFloat(v);
+                s.lineHeightPx = null;
+                s.lineHeightMult = m;
+                return;
+            } catch (NumberFormatException ignore) {}
+            // px/em/rem
+            Float px = parseLengthPx(v, parent.fontSize);
+            if (px != null) { s.lineHeightPx = px; s.lineHeightMult = null; }
+        }
+
+        private static Float parseLengthPx(String v, float parentPx) {
+            if (v == null) return null;
+            v = v.trim().toLowerCase(Locale.ROOT);
+            if (v.isEmpty() || "auto".equals(v) || "inherit".equals(v) || "initial".equals(v)) return null;
+            try {
+                if (v.endsWith("px"))  return Float.parseFloat(v.substring(0, v.length()-2).trim());
+                if (v.endsWith("rem")) return Float.parseFloat(v.substring(0, v.length()-3).trim()) * 16f;
+                if (v.endsWith("em"))  return Float.parseFloat(v.substring(0, v.length()-2).trim()) * parentPx;
+                if (v.endsWith("%"))   return parentPx * (Float.parseFloat(v.substring(0, v.length()-1).trim()) / 100f); // approx
+                // bare number → px
+                return Float.parseFloat(v);
+            } catch (NumberFormatException ignore) {
+                return null;
+            }
+        }
+
+        // keep your existing parseFontSizePx/parseCssColor; they’re compatible
+// returns [topPx, bottomPx]
+        private static float[] parseMarginShorthand(String v, float parentPx) {
+            String[] parts = v.trim().replaceAll("\\s+", " ").split(" ");
+            Float top=null, right=null, bottom=null, left=null;
+
+            Float p0 = parts.length >= 1 ? parseLengthPx(parts[0], parentPx) : null;
+            Float p1 = parts.length >= 2 ? parseLengthPx(parts[1], parentPx) : null;
+            Float p2 = parts.length >= 3 ? parseLengthPx(parts[2], parentPx) : null;
+            Float p3 = parts.length >= 4 ? parseLengthPx(parts[3], parentPx) : null;
+
+            if (parts.length == 1) {
+                top = right = bottom = left = nz(p0);
+            } else if (parts.length == 2) {
+                top = bottom = nz(p0);
+                right = left = nz(p1);
+            } else if (parts.length == 3) {
+                top = nz(p0);
+                right = left = nz(p1);
+                bottom = nz(p2);
+            } else { // 4+
+                top = nz(p0);
+                right = nz(p1);
+                bottom = nz(p2);
+                left = nz(p3);
+            }
+            return new float[]{ top, bottom };
+        }
+
+        private static float nz(Float f) { return f != null ? f : 0f; }
+
+        private static Integer parseFontWeight(String v) {
+            if ("normal".equals(v)) return 400;
+            if ("bold".equals(v)) return 700;
+            try { return Integer.parseInt(v); } catch (Exception ignore) {}
+            return null;
+        }
+    }
+
+    // helpers used by CssEngine:
+    private static Float parseFontSizePx(String v, float parentPx) {
+        try {
+            if (v.endsWith("px")) return Float.parseFloat(v.replace("px","").trim());
+            if (v.endsWith("rem")) return Float.parseFloat(v.replace("rem","").trim()) * 16f;
+            if (v.endsWith("em")) return Float.parseFloat(v.replace("em","").trim()) * parentPx;
+            // bare number: treat as px
+            return Float.parseFloat(v);
+        } catch (Exception ignore) { return null; }
+    }
+
+    private static Color parseCssColor(String v) {
+        try {
+            if (v.startsWith("#")) {
+                String hex = v.substring(1);
+                if (hex.length() == 3) {
+                    int r = Integer.parseInt(hex.substring(0,1)+hex.substring(0,1), 16);
+                    int g = Integer.parseInt(hex.substring(1,2)+hex.substring(1,2), 16);
+                    int b = Integer.parseInt(hex.substring(2,3)+hex.substring(2,3), 16);
+                    return new Color(r, g, b);
+                } else if (hex.length() == 6) {
+                    return new Color(Integer.parseInt(hex, 16));
+                }
+            } else {
+                switch (v) {
+                    case "black": return Color.BLACK;
+                    case "white": return Color.WHITE;
+                    case "red":   return new Color(0xFF0000);
+                    case "green": return new Color(0x00AA00);
+                    case "blue":  return new Color(0x0000FF);
+                    case "gray":
+                    case "grey":  return new Color(0x808080);
+                    // extend as needed
+                }
+            }
+        } catch (Exception ignore) {}
+        return null;
+    }
+
+    // put near CssEngine
+    private static final String UA_CSS = String.join(" ",
+            "p{margin-top:1em;margin-bottom:1em;}",
+            "h1{margin-top:0.67em;margin-bottom:0.67em;}",
+            "h2{margin-top:0.83em;margin-bottom:0.83em;}",
+            "h3{margin-top:1.00em;margin-bottom:1.00em;}"
+    );
+
+    // Resolve from classpath folder like "pdf/" (so "./images/x.png" -> "pdf/images/x.png")
+    public static ResourceResolver classpathResolver(String basePath) {
+        String base = basePath == null ? "" : basePath.replace('\\','/').replaceAll("^/+", "").replaceAll("/+$","");
+        return (src) -> {
+            String norm = src.replace('\\','/').replaceAll("^\\./", "");
+            String full = "/" + (base.isEmpty() ? "" : (base + "/")) + norm;
+            InputStream in = HtmlToPdfService.class.getResourceAsStream(full);
+            if (in == null) throw new FileNotFoundException("Not found on classpath: " + full);
+            return in;
+        };
+    }
+
+    // Resolve from filesystem directory (so "./images/x.png" resolved under that dir)
+    public static ResourceResolver filesystemResolver(java.nio.file.Path baseDir) {
+        return (src) -> {
+            String norm = src.replace('\\','/').replaceAll("^\\./", "");
+            java.nio.file.Path p = baseDir.resolve(norm).normalize();
+            return java.nio.file.Files.newInputStream(p);
+        };
+    }
+
 
 
 }

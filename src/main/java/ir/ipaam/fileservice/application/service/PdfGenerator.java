@@ -62,7 +62,7 @@ public class PdfGenerator {
             PDFont font;
             try (InputStream fontStream = getClass().getResourceAsStream("/fonts/IranSans.ttf")) {
                 if (fontStream == null)
-                    throw new IllegalStateException("Font not found: /fonts/IranSans.ttf");
+                    throw new IllegalStateException("Font not found: /fonts/IRANSans.ttf");
                 font = PDType0Font.load(doc, fontStream, true);
             }
 
