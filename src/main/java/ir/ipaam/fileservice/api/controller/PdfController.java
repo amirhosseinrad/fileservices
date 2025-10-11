@@ -8,9 +8,7 @@ import ir.ipaam.fileservice.api.dto.ContractRequest;
 import ir.ipaam.fileservice.api.mapper.ContractModelMapper;
 import ir.ipaam.fileservice.application.service.HtmlToPdfService;
 import jakarta.validation.Valid;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Entities;
+import lombok.AllArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,17 +23,17 @@ import java.util.Objects;
 
 @RestController
 @RequestMapping("/pdf")
+@AllArgsConstructor
 public class PdfController {
-    private final HtmlToPdfService htmlToPdfService = new HtmlToPdfService();
+    private final HtmlToPdfService htmlToPdfService;
 
-    @PostMapping(value = "/morabaha-1", produces = MediaType.APPLICATION_PDF_VALUE)
-    public ResponseEntity<byte[]> generateMorabaha(@Valid @RequestBody ContractRequest req) throws Exception {
-        Map<String, Object> model = ContractModelMapper.toModel(req);
+    @PostMapping( produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> generate(@Valid @RequestBody Map<String,Object> model) throws Exception {
 
         ClassPathResource htmlRes = new ClassPathResource("morabehe/index.html");
         ClassPathResource cssRes = new ClassPathResource("morabehe/main.css");
         HtmlToPdfService.ResourceResolver rr =
-                HtmlToPdfService.classpathResolver("morabehe/images");
+                HtmlToPdfService.classpathResolver("morabehe");
 
 
         byte[] pdf;
@@ -46,7 +44,7 @@ public class PdfController {
         }
 
         ContentDisposition cd = ContentDisposition.attachment()
-                .filename(("Morabaha-" + req.getPdf_code() + ".pdf"), StandardCharsets.UTF_8)
+                .filename((model.hashCode() +".pdf"), StandardCharsets.UTF_8)
                 .build();
 
         HttpHeaders headers = new HttpHeaders();
@@ -57,7 +55,7 @@ public class PdfController {
     }
 
 
-    @PostMapping(value = "/morabaha", produces = MediaType.APPLICATION_PDF_VALUE)
+    @PostMapping(value = "/by-third-party", produces = MediaType.APPLICATION_PDF_VALUE)
     public ResponseEntity<byte[]> morabaha(@Valid @RequestBody ContractRequest req) throws Exception {
         Map<String, Object> model = ContractModelMapper.toModel(req);
 
@@ -68,16 +66,10 @@ public class PdfController {
         );
         html = html
 
-
                 .replace("&nbsp;", "&#160;")     // replace undefined entity
                 .replace("&ensp;", "&#8194;")
-                .replace("&emsp;", "&#8195;")
-                .replace('ی', 'ي')  // Persian Yeh → Arabic Yeh
-                .replace('ک', 'ك')
-                .replaceAll("(?<=\\p{IsArabic})ي\\b", "ی")
-                .replaceAll("(?<=[\\u0600-\\u06FF])ی(?=[\\u0600-\\u06FF])", "ي");
+                .replace("&emsp;", "&#8195;");
 
-        java.text.Normalizer.normalize(html, java.text.Normalizer.Form.NFC);
 
         html = HtmlToPdfService.renderTemplate(html, model);
         html = shapeArabicText(html);   // the safe non-escaping version
@@ -97,13 +89,13 @@ public class PdfController {
         builder.useFont(
                 () -> {
                     try {
-                        return new ClassPathResource("fonts/Vazirmatn-Regular.ttf").getInputStream();
+                        return new ClassPathResource("morabehe/fonts/IRANSans.ttf").getInputStream();
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
                 },
-                "Vazirmatn",
-                400,
+                "IRANSans",
+                300,
                 BaseRendererBuilder.FontStyle.NORMAL,
                 true
         );

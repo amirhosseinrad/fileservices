@@ -6,6 +6,7 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.springframework.stereotype.Service;
 import org.w3c.dom.*;
 import org.xml.sax.InputSource;
 
@@ -26,6 +27,8 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.apache.batik.ext.awt.image.GraphicsUtil.createGraphics;
+
 /**
  * Minimal HTML (XHTML) -> PDF converter with zero external libraries.
  * - Persian text via Java2D text shaping and Bidi support
@@ -36,6 +39,7 @@ import java.util.regex.Pattern;
  * IMPORTANT: This rasterizes text into page images and embeds those into PDF pages.
  * This avoids manual font embedding/ToUnicode/CMap complexity, while producing a printable PDF.
  */
+@Service
 public class HtmlToPdfService {
 
     // ---- Page & layout defaults ----
@@ -369,9 +373,30 @@ public class HtmlToPdfService {
     }
 
     private List<BufferedImage> renderBlocksToPages(List<Block> blocks) throws IOException {
+
+        BufferedImage headerImage = null;
+        BufferedImage footerImage = null;
+        try (InputStream in = HtmlToPdfService.class.getResourceAsStream("/morabehe/images/logo.png")) {
+            if (in != null) headerImage = ImageIO.read(in);
+        }
+        try (InputStream in = HtmlToPdfService.class.getResourceAsStream("/morabehe/images/sign.png")) {
+            if (in != null) footerImage = ImageIO.read(in);
+        }
+
+        // === Layout constants ===
+        final int HEADER_HEIGHT = headerImage != null ? headerImage.getHeight() + 40 : 120;
+        final int FOOTER_HEIGHT = footerImage != null ? footerImage.getHeight() + 60 : 140;
+
+        int pageIndex = 0;
+        int y = MARGIN_TOP_IMG + 40;
+
+        // Create first page
+        BufferedImage page = new BufferedImage(PAGE_WIDTH_IMG, PAGE_HEIGHT_IMG, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = createGraphics(page);
+        drawHeaderAndFooter(g, headerImage, footerImage, pageIndex);
+        boolean pageHasContent = false;
+
         List<BufferedImage> pages = new ArrayList<>();
-        BufferedImage page = newPageImage();
-        Graphics2D g = prepG(page);
 
         List<List<Line>> blockLines = new ArrayList<>(blocks.size());
         List<Integer> blockHeights = new ArrayList<>(blocks.size());
@@ -387,9 +412,7 @@ public class HtmlToPdfService {
                 blockHeights.add(lines.stream().mapToInt(line -> line.height).sum());
             }
         }
-        int y = MARGIN_TOP_IMG;
         int maxContentBottom = PAGE_HEIGHT_IMG - MARGIN_BOTTOM_IMG;
-        boolean pageHasContent = false;
 
         for (int i = 0; i < blocks.size(); i++) {
             Block block = blocks.get(i);
@@ -403,9 +426,11 @@ public class HtmlToPdfService {
             if (y + required > maxContentBottom) {
                 g.dispose();
                 if (pageHasContent) pages.add(page);
+                pageIndex++;
                 page = newPageImage();
                 g = prepG(page);
-                y = MARGIN_TOP_IMG;
+                drawHeaderAndFooter(g, headerImage, footerImage, pageIndex);
+                y =  MARGIN_TOP_IMG + 40;
                 pageHasContent = false;
             }
 
@@ -414,8 +439,29 @@ public class HtmlToPdfService {
                 y += topM;
                 pageHasContent = true;
             }
-
             // draw lines (if any)
+            if (block.image != null) {
+                int[] wh = measureImageDisplayWH(block.image.getWidth(), block.image.getHeight(),
+                        block.imgAttrWidthPx, block.imgAttrHeightPx, CONTENT_W_IMG);
+
+                int drawW = wh[0];
+                int drawH = wh[1];
+
+                int x;
+                if ("center".equalsIgnoreCase(block.align)) {
+                    x = MARGIN_LEFT_IMG + (CONTENT_W_IMG - drawW) / 2;
+                } else if ("left".equalsIgnoreCase(block.align)) {
+                    x = MARGIN_LEFT_IMG;
+                } else { // default right-align
+                    x = PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - drawW;
+                }
+
+                g.drawImage(block.image, x, y, drawW, drawH, null);
+                y += drawH;
+                pageHasContent = true;
+                continue;
+            }
+
             for (Line line : lines) {
                 if (y + line.height > maxContentBottom) {
                     g.dispose();
@@ -461,6 +507,57 @@ public class HtmlToPdfService {
 
         return pages;
     }
+
+
+    private void drawHeaderAndFooter(Graphics2D g, BufferedImage headerImage, BufferedImage footerImage, int pageIndex) {
+        // Background
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, PAGE_WIDTH_IMG, PAGE_HEIGHT_IMG);
+
+        // ---- HEADER ----
+        if (headerImage != null) {
+            int scaledHeaderW = headerImage.getWidth() / 3;
+            int scaledHeaderH = headerImage.getHeight() / 3;
+
+            // align header to the right
+            int xHeader = PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - scaledHeaderW;
+            int yHeader = 20;
+
+            g.drawImage(headerImage, xHeader, yHeader, scaledHeaderW, scaledHeaderH, null);
+
+            // optional: title under header, aligned to right
+            g.setColor(Color.BLACK);
+/*            g.setFont(new Font("SansSerif", Font.BOLD, 14));
+            String title = "قرارداد مرابحه و تعهدنامه (طرح توربو وام)";
+            int titleWidth = g.getFontMetrics().stringWidth(title);
+            g.drawString(title, PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - titleWidth, yHeader + scaledHeaderH + 30);*/
+        }
+
+        // ---- FOOTER ----
+        if (footerImage != null) {
+            int scaledFooterW = footerImage.getWidth() / 2;
+            int scaledFooterH = footerImage.getHeight() / 2;
+
+            // align footer to the left
+            int xFooter = MARGIN_LEFT_IMG;
+            int yFooter = PAGE_HEIGHT_IMG - scaledFooterH - 30;
+
+            g.drawImage(footerImage, xFooter, yFooter, scaledFooterW, scaledFooterH, null);
+
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            g.drawString("مهر و امضا متقاضی / ضامنین / بانک",
+                    PAGE_WIDTH_IMG - MARGIN_RIGHT_IMG - 220, PAGE_HEIGHT_IMG - 40);
+        }
+
+        // ---- PAGE NUMBER ----
+        g.setFont(new Font("SansSerif", Font.PLAIN, 10));
+        g.setColor(Color.DARK_GRAY);
+        g.drawString("صفحه " + (pageIndex + 1),
+                PAGE_WIDTH_IMG / 2 - 20, PAGE_HEIGHT_IMG - 15);
+    }
+
+
 
     private static int[] measureImageDisplayWH(int naturalW, int naturalH,
                                                Integer attrW, Integer attrH,

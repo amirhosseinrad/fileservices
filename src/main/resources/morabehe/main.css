@@ -1,117 +1,10 @@
 /* inter-300 - latin */
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 300;
-  font-display: swap;
-  src: local(''),
-  url(fonts/inter-v12-latin-300.woff2) format('woff2'),
-  url(fonts/inter-v12-latin-300.woff) format('woff');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
 
 @font-face {
   font-family: 'Vazirmatn';
   src: url('./fonts/Vazirmatn-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
-}
-
-/* inter-regular - latin */
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: local(''),
-  url(fonts/inter-v12-latin-regular.woff2) format('woff2'),
-  url(fonts/inter-v12-latin-regular.woff) format('woff');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/* inter-500 - latin */
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: local(''),
-  url(fonts/inter-v12-latin-500.woff2) format('woff2'),
-  url(fonts/inter-v12-latin-500.woff) format('woff');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/* inter-600 - latin */
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: local(''),
-  url(fonts/inter-v12-latin-600.woff2) format('woff2'),
-  url(fonts/inter-v12-latin-600.woff) format('woff');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/* inter-700 - latin */
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: local(''),
-  url(fonts/inter-v12-latin-700.woff2) format('woff2'),
-  url(fonts/inter-v12-latin-700.woff) format('woff');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/* iran-sans-300 - persian */
-@font-face {
-  font-family: 'IRANSans';
-  font-style: normal;
-  font-weight: 300;
-  font-display: swap;
-  src: local(''),
-  url(fonts/iran-sans-300.woff2) format('woff2'),
-  url(fonts/iran-sans-300.woff) format('woff');
-  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
-}
-
-/* iran-sans-regular - persian */
-@font-face {
-  font-family: 'IRANSans';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: local(''),
-  url(fonts/iran-sans-regular.woff2) format('woff2'),
-  url(fonts/iran-sans-regular.woff) format('woff');
-  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
-}
-
-/* iran-sans-600 - persian */
-@font-face {
-  font-family: 'IRANSans';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: local(''),
-  url(fonts/iran-sans-600.woff2) format('woff2'),
-  url(fonts/iran-sans-600.woff) format('woff');
-  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
-}
-
-/* iran-sans-300 - persian */
-@font-face {
-  font-family: YekanNumbers;
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: local(''),
-  url(fonts/YekanNumbers-Regular.eot) format('embedded-opentype'),
-  url(fonts/YekanNumbers-Regular.woff) format('woff'),
-  url(fonts/YekanNumbers-Regular.ttf) format('truetype');
-  unicode-range: 0x06F0, 0x06F1, 0x06F2, 0x06F3, 0x06F4, 0x06F5, 0x06F6, 0x06F7, 0x06F8, 0x06F9;
 }
 
 /*!
@@ -252,11 +145,10 @@
 }
 
 body {
-  direction: rtl;              /* explicit direction */
-  unicode-bidi: plaintext;     /* let the UA apply bidi rules */
+  direction: rtl; unicode-bidi: embed; text-align: right;
   margin: 0;
-  text-align: right !important;
-  font-family: "Vazirmatn", sans-serif;
+  font-family: IRANSans, Inter, Helvetica, "sans-serif";
+  font-family: var(--bs-body-font-family);
   font-size: 13px;
   font-size: var(--bs-body-font-size);
   font-weight: 400;
@@ -268,7 +160,9 @@ body {
   background-color: #fff;
   background-color: var(--bs-body-bg);
   -webkit-text-size-adjust: 100%;
-  -webkit-tap-highlight-color: rgba(0, 0, 0, 0)
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+
+
 }
 
 hr {
@@ -368,9 +262,12 @@ h6,
 }
 
 p {
-  margin-top: 0 !important;
+  direction: rtl;
+  unicode-bidi: embed;
+  text-align: right;  margin-top: 0 !important;
   margin-bottom: 1rem !important;
-  line-height: 24px !important;
+  text-align: right !important;
+  line-height: 24px !important
 }
 
 ol,
@@ -428,12 +325,13 @@ svg {
 }
 
 table {
+
   caption-side: bottom;
   border-collapse: collapse
 }
 
 th {
-  text-align: inherit;
+  text-align: right;
   text-align: -webkit-match-parent
 }
 
@@ -477,6 +375,9 @@ th {
 
 
 .container-fluid {
+  direction: rtl;
+  text-align: right;
+  font-family: 'IRANSans', sans-serif;
   --bs-gutter-x: 1.5rem;
   --bs-gutter-y: 0;
   width: 100%;
@@ -531,6 +432,9 @@ th {
 }
 
 .table {
+  direction: rtl;
+  unicode-bidi: embed;
+  text-align: right;
   --bs-table-color-type: initial;
   --bs-table-bg-type: initial;
   --bs-table-color-state: initial;
@@ -757,4 +661,10 @@ th {
 .padding-y {
   padding-bottom: 2.5rem !important;
   padding-top: 2.5rem !important;
+}
+
+p, td, th, span, div {
+  direction: rtl;
+  unicode-bidi: embed;
+  text-align: right;
 }
