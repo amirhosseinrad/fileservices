@@ -770,8 +770,10 @@ public class HtmlToPdfService {
 
             PDImageXObject pdImage = LosslessFactory.createFromImage(doc, img);
             try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
-                content.drawImage(pdImage, 0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-            }
+                double scale = 72.0 / DPI; // because 1 pt = 1/72 inch
+                float drawW = (float) (PAGE_WIDTH_IMG * scale);
+                float drawH = (float) (PAGE_HEIGHT_IMG * scale);
+                content.drawImage(pdImage, 0, 0, drawW, drawH);            }
         }
 
         doc.save(out);
