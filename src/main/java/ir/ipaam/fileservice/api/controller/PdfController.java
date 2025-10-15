@@ -4,6 +4,7 @@ import com.ibm.icu.text.ArabicShaping;
 import com.ibm.icu.text.ArabicShapingException;
 import com.ibm.icu.text.Bidi;
 import com.openhtmltopdf.outputdevice.helper.BaseRendererBuilder;
+import io.swagger.v3.oas.annotations.Operation;
 import ir.ipaam.fileservice.api.dto.ContractRequest;
 import ir.ipaam.fileservice.api.mapper.ContractModelMapper;
 import ir.ipaam.fileservice.application.service.HtmlToPdfService;
@@ -11,13 +12,13 @@ import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.*;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Objects;
 
@@ -53,6 +54,65 @@ public class PdfController {
 
         return new ResponseEntity<>(pdf, headers, HttpStatus.OK);
     }
+
+
+    @PostMapping(
+            value = "/from-folder",
+            produces = MediaType.APPLICATION_PDF_VALUE
+    )
+    @Operation(summary = "Generate PDF from local folder (HTML + CSS + fonts + images)")
+    public ResponseEntity<byte[]> generateFromFolder(
+            @RequestParam("folderPath") String folderPath,
+            @Valid @RequestBody Map<String, Object> model
+    ) throws Exception {
+
+        Path baseDir = Paths.get(folderPath);
+        if (!Files.exists(baseDir) || !Files.isDirectory(baseDir)) {
+            throw new FileNotFoundException("Folder not found: " + folderPath);
+        }
+
+        // 1️⃣ Find HTML and CSS files
+        Path htmlPath = baseDir.resolve("index.html");
+        Path cssPath = baseDir.resolve("main.css"); // optional
+        if (!Files.exists(htmlPath)) {
+            throw new FileNotFoundException("index.html not found in folder " + folderPath);
+        }
+
+        // 2️⃣ Read the HTML and CSS
+        String html = Files.readString(htmlPath, StandardCharsets.UTF_8)
+                .replace("&nbsp;", "&#160;")
+                .replace("&ensp;", "&#8194;")
+                .replace("&emsp;", "&#8195;");
+
+        String css = Files.exists(cssPath)
+                ? Files.readString(cssPath, StandardCharsets.UTF_8)
+                : "";
+
+        // 3️⃣ Define base URL so relative paths (images/fonts) resolve
+        //    The "file:" prefix is important for OpenHTMLToPDF to load local assets.
+        String baseUri = baseDir.toUri().toString();
+
+        // 4️⃣ Convert HTML → PDF using your existing service
+        byte[] pdf = htmlToPdfService.convertXhtmlToPdf(
+                new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream(css.getBytes(StandardCharsets.UTF_8)),
+                model,
+                HtmlToPdfService.classpathResolver(baseUri)
+        );
+
+        // 5️⃣ Build PDF response
+        ContentDisposition cd = ContentDisposition.attachment()
+                .filename(model.hashCode() + ".pdf", StandardCharsets.UTF_8)
+                .build();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentDisposition(cd);
+        headers.setContentType(MediaType.APPLICATION_PDF);
+
+        return new ResponseEntity<>(pdf, headers, HttpStatus.OK);
+    }
+
+
 
 
     @PostMapping(value = "/by-third-party", produces = MediaType.APPLICATION_PDF_VALUE)
