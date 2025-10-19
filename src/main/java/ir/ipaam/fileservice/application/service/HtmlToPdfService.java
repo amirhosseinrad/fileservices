@@ -43,6 +43,8 @@ import static org.apache.batik.ext.awt.image.GraphicsUtil.createGraphics;
 public class HtmlToPdfService {
 
     // ---- Page & layout defaults ----
+    private static final double RENDER_DPI = 300.0;
+    private static final double LAYOUT_DPI = 150.0;
     private static final double DPI = 150.0;                  // Image render DPI
     private static final int A4_WIDTH_PT = 595;               // PDF points
     private static final int A4_HEIGHT_PT = 842;              // PDF points
@@ -770,9 +772,9 @@ public class HtmlToPdfService {
 
             PDImageXObject pdImage = LosslessFactory.createFromImage(doc, img);
             try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
-                double scale = 72.0 / DPI; // because 1 pt = 1/72 inch
-                float drawW = (float) (PAGE_WIDTH_IMG * scale);
-                float drawH = (float) (PAGE_HEIGHT_IMG * scale);
+                double scale = 72.0 / RENDER_DPI; // use RENDER_DPI here, not LAYOUT_DPI
+                float drawW = (float) (PAGE_WIDTH_IMG * (RENDER_DPI / LAYOUT_DPI) * scale);
+                float drawH = (float) (PAGE_HEIGHT_IMG * (RENDER_DPI / LAYOUT_DPI) * scale);
                 content.drawImage(pdImage, 0, 0, drawW, drawH);            }
         }
 

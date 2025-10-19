@@ -145,7 +145,6 @@
 }
 
 body {
-  direction: rtl; unicode-bidi: embed; text-align: right;
   margin: 0;
   font-family: IRANSans, Inter, Helvetica, "sans-serif";
   font-family: var(--bs-body-font-family);
@@ -262,9 +261,7 @@ h6,
 }
 
 p {
-  direction: rtl;
-  unicode-bidi: embed;
-  text-align: right;  margin-top: 0 !important;
+  margin-top: 0 !important;
   margin-bottom: 1rem !important;
   text-align: right !important;
   line-height: 24px !important
@@ -375,9 +372,7 @@ th {
 
 
 .container-fluid {
-  direction: rtl;
-  text-align: right;
-  font-family: 'IRANSans', sans-serif;
+
   --bs-gutter-x: 1.5rem;
   --bs-gutter-y: 0;
   width: 100%;
@@ -432,9 +427,6 @@ th {
 }
 
 .table {
-  direction: rtl;
-  unicode-bidi: embed;
-  text-align: right;
   --bs-table-color-type: initial;
   --bs-table-bg-type: initial;
   --bs-table-color-state: initial;
@@ -661,10 +653,4 @@ th {
 .padding-y {
   padding-bottom: 2.5rem !important;
   padding-top: 2.5rem !important;
-}
-
-p, td, th, span, div {
-  direction: rtl;
-  unicode-bidi: embed;
-  text-align: right;
 }

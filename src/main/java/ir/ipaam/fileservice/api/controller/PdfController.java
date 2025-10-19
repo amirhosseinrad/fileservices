@@ -32,7 +32,7 @@ public class PdfController {
     public ResponseEntity<byte[]> generate(@Valid @RequestBody Map<String,Object> model) throws Exception {
 
         ClassPathResource htmlRes = new ClassPathResource("morabehe/index.html");
-        ClassPathResource cssRes = new ClassPathResource("morabehe/main.css");
+        ClassPathResource cssRes = new ClassPathResource("morabehe/style.css");
         HtmlToPdfService.ResourceResolver rr =
                 HtmlToPdfService.classpathResolver("morabehe");
 
@@ -55,7 +55,6 @@ public class PdfController {
         return new ResponseEntity<>(pdf, headers, HttpStatus.OK);
     }
 
-
     @PostMapping(
             value = "/from-folder",
             produces = MediaType.APPLICATION_PDF_VALUE
@@ -71,12 +70,16 @@ public class PdfController {
             throw new FileNotFoundException("Folder not found: " + folderPath);
         }
 
-        // 1️⃣ Find HTML and CSS files
-        Path htmlPath = baseDir.resolve("index.html");
-        Path cssPath = baseDir.resolve("main.css"); // optional
-        if (!Files.exists(htmlPath)) {
-            throw new FileNotFoundException("index.html not found in folder " + folderPath);
-        }
+        // 1️⃣ Find first HTML and CSS file
+        Path htmlPath = Files.walk(baseDir)
+                .filter(p -> p.toString().toLowerCase().endsWith(".html"))
+                .findFirst()
+                .orElseThrow(() -> new FileNotFoundException("No HTML file found in folder " + folderPath));
+
+        Path cssPath = Files.walk(baseDir)
+                .filter(p -> p.toString().toLowerCase().endsWith(".css"))
+                .findFirst()
+                .orElse(null); // optional
 
         // 2️⃣ Read the HTML and CSS
         String html = Files.readString(htmlPath, StandardCharsets.UTF_8)
@@ -84,15 +87,14 @@ public class PdfController {
                 .replace("&ensp;", "&#8194;")
                 .replace("&emsp;", "&#8195;");
 
-        String css = Files.exists(cssPath)
+        String css = (cssPath != null)
                 ? Files.readString(cssPath, StandardCharsets.UTF_8)
                 : "";
 
-        // 3️⃣ Define base URL so relative paths (images/fonts) resolve
-        //    The "file:" prefix is important for OpenHTMLToPDF to load local assets.
-        String baseUri = baseDir.toUri().toString();
+        // 3️⃣ Base URI for relative resources (images/fonts)
+        String baseUri = htmlPath.getParent().toUri().toString();
 
-        // 4️⃣ Convert HTML → PDF using your existing service
+        // 4️⃣ Convert HTML → PDF
         byte[] pdf = htmlToPdfService.convertXhtmlToPdf(
                 new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)),
                 new ByteArrayInputStream(css.getBytes(StandardCharsets.UTF_8)),
@@ -100,7 +102,7 @@ public class PdfController {
                 HtmlToPdfService.classpathResolver(baseUri)
         );
 
-        // 5️⃣ Build PDF response
+        // 5️⃣ Build response
         ContentDisposition cd = ContentDisposition.attachment()
                 .filename(model.hashCode() + ".pdf", StandardCharsets.UTF_8)
                 .build();
@@ -111,8 +113,6 @@ public class PdfController {
 
         return new ResponseEntity<>(pdf, headers, HttpStatus.OK);
     }
-
-
 
 
     @PostMapping(value = "/by-third-party", produces = MediaType.APPLICATION_PDF_VALUE)
