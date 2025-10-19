@@ -1,26 +1,35 @@
 package ir.ipaam.fileservice.api.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ibm.icu.text.ArabicShaping;
 import com.ibm.icu.text.ArabicShapingException;
 import com.ibm.icu.text.Bidi;
 import com.openhtmltopdf.outputdevice.helper.BaseRendererBuilder;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
 import ir.ipaam.fileservice.api.dto.ContractRequest;
 import ir.ipaam.fileservice.api.mapper.ContractModelMapper;
 import ir.ipaam.fileservice.application.service.HtmlToPdfService;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 @RestController
 @RequestMapping("/pdf")
@@ -99,7 +108,8 @@ public class PdfController {
                 new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)),
                 new ByteArrayInputStream(css.getBytes(StandardCharsets.UTF_8)),
                 model,
-                HtmlToPdfService.classpathResolver(baseUri)
+                //HtmlToPdfService.classpathResolver(baseUri)
+                HtmlToPdfService.fileResolver(baseUri)
         );
 
         // 5️⃣ Build response
@@ -259,6 +269,111 @@ public class PdfController {
             return text; // fallback: return unshaped text
         }
     }
+
+    public record PdfRequest(String html, String css, Map<String, Object> model) {}
+
+
+    @PostMapping(value = "/from-content", produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> generateFromContent(
+            @RequestBody PdfRequest request
+    ) throws Exception {
+        byte[] pdf = htmlToPdfService.convertXhtmlToPdf(
+                new ByteArrayInputStream(request.html().getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream(request.css().getBytes(StandardCharsets.UTF_8)),
+                request.model(),
+                HtmlToPdfService.fileResolver("") // no external resources
+        );
+
+        // 5️⃣ Build response
+        ContentDisposition cd = ContentDisposition.attachment()
+                .filename(request.hashCode() + ".pdf", StandardCharsets.UTF_8)
+                .build();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentDisposition(cd);
+        headers.setContentType(MediaType.APPLICATION_PDF);
+
+        return new ResponseEntity<>(pdf, headers, HttpStatus.OK);
+    }
+    @PostMapping(
+            value = "/from-zip",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            produces = MediaType.APPLICATION_PDF_VALUE
+    )
+    @Operation(summary = "Generate PDF from ZIP containing HTML, CSS, images, fonts")
+    public ResponseEntity<ByteArrayResource> generateFromZip(
+            @RequestPart("file") MultipartFile zipFile,
+            @RequestPart("model") String modelJson   // ← accept as plain text
+    ) throws Exception {
+
+        // Parse JSON manually
+        Map<String, Object> model = new ObjectMapper().readValue(modelJson, Map.class);
+
+        Path tempDir = Files.createTempDirectory("pdfzip_");
+        unzip(zipFile.getInputStream(), tempDir);
+
+        Path htmlPath = findFile(tempDir, ".html")
+                .orElseThrow(() -> new FileNotFoundException("No HTML file found in ZIP"));
+        Path cssPath = findFile(tempDir, ".css").orElse(null);
+
+        String html = Files.readString(htmlPath, StandardCharsets.UTF_8)
+                .replace("&nbsp;", "&#160;")
+                .replace("&ensp;", "&#8194;")
+                .replace("&emsp;", "&#8195;");
+        String css = (cssPath != null) ? Files.readString(cssPath, StandardCharsets.UTF_8) : "";
+
+        String baseUri = htmlPath.getParent().toUri().toString();
+
+        byte[] pdf = htmlToPdfService.convertXhtmlToPdf(
+                new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream(css.getBytes(StandardCharsets.UTF_8)),
+                model,
+                HtmlToPdfService.fileResolver(baseUri)
+        );
+
+        ContentDisposition cd = ContentDisposition.attachment()
+                .filename(model.hashCode() + ".pdf", StandardCharsets.UTF_8)
+                .build();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentDisposition(cd);
+        headers.setContentType(MediaType.APPLICATION_PDF);
+
+        return new ResponseEntity<>(new ByteArrayResource(pdf), headers, HttpStatus.OK);
+    }
+
+    // -------------------------------------------------------------------------
+    // Utility: Extract ZIP
+    // -------------------------------------------------------------------------
+    private void unzip(InputStream inputStream, Path targetDir) throws IOException {
+        try (ZipInputStream zis = new ZipInputStream(inputStream)) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                Path newFile = targetDir.resolve(entry.getName()).normalize();
+                if (!newFile.startsWith(targetDir)) {
+                    throw new IOException("ZIP entry outside target dir: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(newFile);
+                } else {
+                    Files.createDirectories(newFile.getParent());
+                    Files.copy(zis, newFile, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Utility: Find a file with given extension
+    // -------------------------------------------------------------------------
+    private Optional<Path> findFile(Path dir, String extension) throws IOException {
+        try (var stream = Files.walk(dir)) {
+            return stream.filter(p -> p.toString().toLowerCase().endsWith(extension))
+                    .findFirst();
+        }
+    }
+
+
 
 
 }

@@ -19,7 +19,11 @@ import java.awt.font.TextAttribute;
 import java.awt.font.TextLayout;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.AttributedCharacterIterator;
 import java.text.AttributedString;
 import java.util.*;
@@ -1297,6 +1301,27 @@ public class HtmlToPdfService {
             return java.nio.file.Files.newInputStream(p);
         };
     }
+
+    public static ResourceResolver fileResolver(String baseUri) {
+        return uri -> {
+            try {
+                URI resolvedUri = URI.create(uri);
+                Path path;
+                if (resolvedUri.isAbsolute() && "file".equals(resolvedUri.getScheme())) {
+                    path = Paths.get(resolvedUri);
+                } else {
+                    // Relative path → resolve against base folder
+                    path = Paths.get(URI.create(baseUri)).resolve(uri).normalize();
+                }
+                return Files.newInputStream(path);
+            } catch (Exception e) {
+                throw new RuntimeException("Could not resolve resource: " + uri, e);
+            }
+        };
+    }
+
+
+
 
 
 

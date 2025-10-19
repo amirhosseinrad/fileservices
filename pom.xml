@@ -30,11 +30,11 @@
     <dependencies>
 
         <!-- IPAAM base classes-->
-        <dependency>
+<!--        <dependency>
             <groupId>ir.ipaam</groupId>
             <artifactId>base-classes</artifactId>
             <version>1.0.1</version>
-        </dependency>
+        </dependency>-->
 
             <!-- Spring Boot core -->
         <dependency>
