@@ -16,6 +16,7 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.*;
 import org.xml.sax.InputSource;
+import org.xml.sax.SAXParseException;
 
 import javax.imageio.ImageIO;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -177,6 +178,8 @@ public class HtmlToPdfService {
             List<Block> blocks = extractBlocks(doc.getDocumentElement(), css, rr);
             List<BufferedImage> pages = renderBlocksToPages(blocks);
             return buildPdfFromJpegs(pages);
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException("Failed to convert XHTML to PDF: " + e.getMessage(), e);
         }
@@ -190,6 +193,16 @@ public class HtmlToPdfService {
             dbf.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
             var db = dbf.newDocumentBuilder();
             return db.parse(new InputSource(new StringReader(xhtml)));
+        } catch (SAXParseException e) {
+            StringBuilder msg = new StringBuilder("Input must be well-formed XHTML. Error at line ")
+                    .append(e.getLineNumber());
+            if (e.getColumnNumber() > 0) {
+                msg.append(", column ").append(e.getColumnNumber());
+            }
+            if (e.getMessage() != null && !e.getMessage().isBlank()) {
+                msg.append(": ").append(e.getMessage());
+            }
+            throw new IllegalArgumentException(msg.toString(), e);
         } catch (Exception e) {
             throw new IllegalArgumentException("Input must be well-formed XHTML. " + e.getMessage(), e);
         }

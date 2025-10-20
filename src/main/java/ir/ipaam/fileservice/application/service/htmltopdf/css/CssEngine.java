@@ -61,43 +61,88 @@ public class CssEngine {
     }
 
     private static List<CssRule> parseCss(String css, int startOrder) {
-        css = css.replaceAll("/\\*.*?\\*/", " ");
         List<CssRule> out = new ArrayList<>();
+        LinePointer line = new LinePointer(1);
         int order = startOrder;
+        int len = css.length();
+        int i = 0;
 
-        for (String block : css.split("}")) {
-            String[] parts = block.split("\\{", 2);
-            if (parts.length != 2) continue;
-            String selectors = parts[0].trim();
-            String body = parts[1].trim();
-            if (selectors.isEmpty() || body.isEmpty()) continue;
-
-            Map<String, String> decls = new HashMap<>();
-            for (String decl : body.split(";")) {
-                String d = decl.trim();
-                if (d.isEmpty()) continue;
-                String[] kv = d.split(":", 2);
-                if (kv.length != 2) continue;
-                String key = kv[0].trim().toLowerCase(Locale.ROOT);
-                String val = kv[1].replace("!important", "").trim().toLowerCase(Locale.ROOT);
-                switch (key) {
-                    case "font-weight":
-                    case "font-style":
-                    case "font-size":
-                    case "color":
-                    case "text-align":
-                    case "line-height":
-                    case "margin-top":
-                    case "margin-bottom":
-                    case "margin":
-                    case "text-decoration":
-                        decls.put(key, val);
-                        break;
-                }
+        while (true) {
+            i = skipWhitespaceAndComments(css, i, line);
+            if (i >= len) {
+                break;
             }
-            if (decls.isEmpty()) continue;
 
-            for (String sel : selectors.split(",")) {
+            int selectorStartLine = line.value;
+            StringBuilder selectorBuf = new StringBuilder();
+            boolean foundBrace = false;
+            while (i < len) {
+                char c = css.charAt(i);
+                if (isCommentStart(css, i)) {
+                    i = skipComment(css, i, line);
+                    continue;
+                }
+                if (c == '{') {
+                    foundBrace = true;
+                    i++;
+                    break;
+                }
+                if (c == '}') {
+                    throw new IllegalArgumentException("Malformed CSS at line " + line.value + ": unexpected '}'");
+                }
+                if (c == '\n') {
+                    line.value++;
+                }
+                selectorBuf.append(c);
+                i++;
+            }
+
+            if (!foundBrace) {
+                if (selectorBuf.toString().trim().isEmpty()) {
+                    break;
+                }
+                throw new IllegalArgumentException("Malformed CSS at line " + selectorStartLine + ": missing '{'");
+            }
+
+            String selectorText = selectorBuf.toString().trim();
+            if (selectorText.isEmpty()) {
+                throw new IllegalArgumentException("Malformed CSS at line " + selectorStartLine + ": empty selector");
+            }
+
+            int bodyStartLine = line.value;
+            StringBuilder bodyBuf = new StringBuilder();
+            boolean closed = false;
+            while (i < len) {
+                char c = css.charAt(i);
+                if (isCommentStart(css, i)) {
+                    i = skipComment(css, i, line);
+                    continue;
+                }
+                if (c == '}') {
+                    closed = true;
+                    i++;
+                    break;
+                }
+                if (c == '{') {
+                    throw new IllegalArgumentException("Malformed CSS at line " + line.value + ": unexpected '{'");
+                }
+                if (c == '\n') {
+                    line.value++;
+                }
+                bodyBuf.append(c);
+                i++;
+            }
+
+            if (!closed) {
+                throw new IllegalArgumentException("Malformed CSS at line " + line.value + ": missing '}'");
+            }
+
+            Map<String, String> decls = parseDeclarations(bodyBuf.toString(), bodyStartLine);
+            if (decls.isEmpty()) {
+                continue;
+            }
+
+            for (String sel : selectorText.split(",")) {
                 String s = sel.trim();
                 if (s.isEmpty()) continue;
                 CssRule rule = parseSelector(s, decls, order++);
@@ -105,6 +150,68 @@ public class CssEngine {
             }
         }
         return out;
+    }
+
+    private static Map<String, String> parseDeclarations(String body, int startLine) {
+        Map<String, String> decls = new HashMap<>();
+        LinePointer line = new LinePointer(startLine);
+        int len = body.length();
+        int i = 0;
+
+        while (true) {
+            i = skipWhitespaceAndComments(body, i, line);
+            if (i >= len) {
+                break;
+            }
+
+            int declLine = line.value;
+            StringBuilder declBuf = new StringBuilder();
+            while (i < len) {
+                char c = body.charAt(i);
+                if (isCommentStart(body, i)) {
+                    i = skipComment(body, i, line);
+                    continue;
+                }
+                if (c == ';') {
+                    i++;
+                    break;
+                }
+                if (c == '\n') {
+                    line.value++;
+                }
+                declBuf.append(c);
+                i++;
+            }
+
+            String decl = declBuf.toString().trim();
+            if (decl.isEmpty()) {
+                continue;
+            }
+
+            int colon = decl.indexOf(':');
+            if (colon < 0) {
+                throw new IllegalArgumentException("Malformed CSS at line " + declLine + ": missing ':' in declaration");
+            }
+
+            String key = decl.substring(0, colon).trim().toLowerCase(Locale.ROOT);
+            String val = decl.substring(colon + 1).replace("!important", "").trim().toLowerCase(Locale.ROOT);
+            switch (key) {
+                case "font-weight":
+                case "font-style":
+                case "font-size":
+                case "color":
+                case "text-align":
+                case "line-height":
+                case "margin-top":
+                case "margin-bottom":
+                case "margin":
+                case "text-decoration":
+                    decls.put(key, val);
+                    break;
+            }
+        }
+
+        return decls;
     }
 
     private static CssRule parseSelector(String s, Map<String, String> decls, int order) {
@@ -149,6 +256,60 @@ public class CssEngine {
             }
         }
         return s.length() - 1;
+    }
+
+    private static int skipWhitespaceAndComments(String css, int idx, LinePointer line) {
+        int len = css.length();
+        boolean advanced;
+        do {
+            advanced = false;
+            while (idx < len) {
+                char c = css.charAt(idx);
+                if (Character.isWhitespace(c)) {
+                    if (c == '\n') {
+                        line.value++;
+                    }
+                    idx++;
+                    advanced = true;
+                } else {
+                    break;
+                }
+            }
+            if (idx < len - 1 && css.charAt(idx) == '/' && css.charAt(idx + 1) == '*') {
+                idx = skipComment(css, idx, line);
+                advanced = true;
+            }
+        } while (advanced);
+        return idx;
+    }
+
+    private static boolean isCommentStart(String css, int idx) {
+        return idx < css.length() - 1 && css.charAt(idx) == '/' && css.charAt(idx + 1) == '*';
+    }
+
+    private static int skipComment(String css, int idx, LinePointer line) {
+        int len = css.length();
+        int startLine = line.value;
+        idx += 2; // skip /*
+        while (idx < len) {
+            char c = css.charAt(idx);
+            if (c == '\n') {
+                line.value++;
+            }
+            if (c == '*' && idx < len - 1 && css.charAt(idx + 1) == '/') {
+                return idx + 2;
+            }
+            idx++;
+        }
+        throw new IllegalArgumentException("Malformed CSS at line " + startLine + ": unterminated comment");
+    }
+
+    private static final class LinePointer {
+        int value;
+
+        LinePointer(int value) {
+            this.value = value;
+        }
     }
 
     private static void applyDecls(Map<String, String> decls, Style s, Style parent) {
