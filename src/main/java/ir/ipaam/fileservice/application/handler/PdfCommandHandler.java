@@ -130,14 +130,26 @@ public class PdfCommandHandler {
         builder.withHtmlContent(html, baseUrl);
 
         builder.useFont(
-                () -> new ClassPathResource("morabehe/fonts/IRANSans.ttf").getInputStream(),
+                () -> {
+                    try {
+                        return new ClassPathResource("morabehe/fonts/IRANSans.ttf").getInputStream();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                },
                 "IRANSans",
                 300,
                 BaseRendererBuilder.FontStyle.NORMAL,
                 true
         );
         builder.useFont(
-                () -> new ClassPathResource("fonts/Vazirmatn-Bold.ttf").getInputStream(),
+                () -> {
+                    try {
+                        return new ClassPathResource("fonts/Vazirmatn-Bold.ttf").getInputStream();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                },
                 "Vazirmatn",
                 700,
                 BaseRendererBuilder.FontStyle.NORMAL,
