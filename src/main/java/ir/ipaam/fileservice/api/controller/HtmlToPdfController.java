@@ -32,7 +32,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/pdf")
 @RequiredArgsConstructor
-public class PdfController {
+public class HtmlToPdfController {
 
     private final CommandGateway commandGateway;
 
