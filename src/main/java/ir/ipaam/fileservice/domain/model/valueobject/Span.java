@@ -1,4 +1,4 @@
-package ir.ipaam.fileservice.application.service.htmltopdf.model;
+package ir.ipaam.fileservice.domain.model.valueobject;
 
 public class Span {
     public final String text;

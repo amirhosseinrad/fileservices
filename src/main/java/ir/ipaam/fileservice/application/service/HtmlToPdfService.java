@@ -1,12 +1,10 @@
 package ir.ipaam.fileservice.application.service;
 
-import ir.ipaam.fileservice.application.service.htmltopdf.ResourceResolver;
-import ir.ipaam.fileservice.application.service.htmltopdf.css.CssEngine;
-import ir.ipaam.fileservice.application.service.htmltopdf.model.Block;
-import ir.ipaam.fileservice.application.service.htmltopdf.model.Line;
-import ir.ipaam.fileservice.application.service.htmltopdf.model.Span;
-import ir.ipaam.fileservice.application.service.htmltopdf.model.SpanRun;
-import ir.ipaam.fileservice.application.service.htmltopdf.model.Style;
+import ir.ipaam.fileservice.domain.model.valueobject.Block;
+import ir.ipaam.fileservice.domain.model.valueobject.Line;
+import ir.ipaam.fileservice.domain.model.valueobject.Span;
+import ir.ipaam.fileservice.domain.model.valueobject.SpanRun;
+import ir.ipaam.fileservice.domain.model.valueobject.Style;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;

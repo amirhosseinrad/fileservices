@@ -5,7 +5,7 @@ import com.openhtmltopdf.outputdevice.helper.BaseRendererBuilder;
 import ir.ipaam.fileservice.api.dto.ContractRequest;
 import ir.ipaam.fileservice.api.mapper.ContractModelMapper;
 import ir.ipaam.fileservice.application.service.HtmlToPdfService;
-import ir.ipaam.fileservice.application.service.htmltopdf.ResourceResolver;
+import ir.ipaam.fileservice.application.service.ResourceResolver;
 import ir.ipaam.fileservice.application.util.ArabicTextUtils;
 import ir.ipaam.fileservice.domain.command.GeneratePdfFromContentCommand;
 import ir.ipaam.fileservice.domain.command.GeneratePdfFromFolderCommand;

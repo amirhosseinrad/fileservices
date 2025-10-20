@@ -1,4 +1,4 @@
-package ir.ipaam.fileservice.application.service.htmltopdf.model;
+package ir.ipaam.fileservice.domain.model.valueobject;
 
 import java.awt.image.BufferedImage;
 import java.text.AttributedString;

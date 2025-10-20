@@ -1,6 +1,6 @@
-package ir.ipaam.fileservice.application.service.htmltopdf.css;
+package ir.ipaam.fileservice.application.service;
 
-import ir.ipaam.fileservice.application.service.htmltopdf.model.Style;
+import ir.ipaam.fileservice.domain.model.valueobject.Style;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
