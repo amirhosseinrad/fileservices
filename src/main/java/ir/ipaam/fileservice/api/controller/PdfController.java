@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import ir.ipaam.fileservice.api.dto.ContractRequest;
 import ir.ipaam.fileservice.api.mapper.ContractModelMapper;
 import ir.ipaam.fileservice.application.service.HtmlToPdfService;
+import ir.ipaam.fileservice.application.service.htmltopdf.ResourceResolver;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.springframework.core.io.ByteArrayResource;
@@ -42,8 +43,7 @@ public class PdfController {
 
         ClassPathResource htmlRes = new ClassPathResource("morabehe/index.html");
         ClassPathResource cssRes = new ClassPathResource("morabehe/style.css");
-        HtmlToPdfService.ResourceResolver rr =
-                HtmlToPdfService.classpathResolver("morabehe");
+        ResourceResolver rr = HtmlToPdfService.classpathResolver("morabehe");
 
 
         byte[] pdf;
